@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(LunaShotCoreTests LANGUAGES CXX)
+add_executable(core_tests core_tests.cpp ../src/CoreUtils.cpp)
+target_include_directories(core_tests PRIVATE ../include)
+target_compile_features(core_tests PRIVATE cxx_std_20)

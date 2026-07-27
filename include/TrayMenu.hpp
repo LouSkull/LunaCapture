@@ -1,0 +1,68 @@
+#pragma once
+
+#include "Types.hpp"
+#include "UiIcons.hpp"
+
+#include <Windows.h>
+
+#include <string>
+#include <vector>
+
+enum class TrayCommand : UINT {
+    Open = 1,
+    CaptureActive,
+    CaptureAll,
+    CaptureRegion,
+    CaptureWindow,
+    OpenFolder,
+    ToggleSound,
+    ToggleNotifications,
+    Exit,
+};
+
+class TrayMenu {
+public:
+    TrayMenu() = default;
+    ~TrayMenu();
+
+    bool Create(HINSTANCE instance, HWND notifyWindow);
+    void Destroy();
+    void Show(POINT screenPoint, const AppSettings& settings);
+    void Hide();
+
+private:
+    struct Item {
+        TrayCommand command{};
+        UiIcon icon = UiIcon::Capture;
+        std::wstring label;
+        std::wstring shortcut;
+        bool separatorBefore = false;
+        bool checked = false;
+    };
+
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
+    void Paint();
+    bool EnsureBackBuffer(int width, int height);
+    void ReleaseGraphics();
+    int HitTest(POINT point) const;
+    RECT ItemRect(int index) const;
+
+    HINSTANCE instance_ = nullptr;
+    HWND notifyWindow_ = nullptr;
+    HWND hwnd_ = nullptr;
+    std::vector<Item> items_;
+    int hovered_ = -1;
+    int pressed_ = -1;
+    int width_ = 312;
+    int rowHeight_ = 34;
+    HDC backBufferDc_ = nullptr;
+    HBITMAP backBufferBitmap_ = nullptr;
+    HGDIOBJ backBufferOldBitmap_ = nullptr;
+    void* backBufferPixels_ = nullptr;
+    int backBufferWidth_ = 0;
+    int backBufferHeight_ = 0;
+    HFONT titleFont_ = nullptr;
+    HFONT normalFont_ = nullptr;
+    HFONT smallFont_ = nullptr;
+};
