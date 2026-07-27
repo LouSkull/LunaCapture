@@ -7,8 +7,9 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
-#include <filesystem>
 #include <algorithm>
+#include <cmath>
+#include <filesystem>
 
 using Microsoft::WRL::ComPtr;
 
@@ -72,16 +73,13 @@ bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error) {
     ComPtr<IWICBitmapSource> finalSource;
     hr = source.As(&finalSource);
     if (Failed(hr, L"IWICBitmapSource", error)) return false;
-    if (job.outputWidth > 0 && job.outputHeight > 0 &&
-        (job.outputWidth != static_cast<int>(job.width) || job.outputHeight != static_cast<int>(job.height))) {
-        ComPtr<IWICBitmapScaler> scaler;
-        hr = factory->CreateBitmapScaler(&scaler);
-        if (Failed(hr, L"CreateBitmapScaler", error)) return false;
-        hr = scaler->Initialize(source.Get(), static_cast<UINT>(job.outputWidth), static_cast<UINT>(job.outputHeight),
-                                WICBitmapInterpolationModeFant);
-        if (Failed(hr, L"BitmapScaler::Initialize", error)) return false;
-        finalSource = scaler;
-    }
+    // Screenshots are ALWAYS saved at the exact captured resolution - no resampling ever touches a
+    // still image. Any scaling (down OR up) reinterpolates real pixels into a softer image with no
+    // added detail, which is precisely what made saved photos look blurry. Native pixels are, by
+    // definition, the maximum possible quality; there is nothing to gain by resizing a screenshot,
+    // so job.outputWidth/outputHeight are deliberately ignored here (they still govern video).
+    const UINT outputWidth = job.width;
+    const UINT outputHeight = job.height;
 
     ComPtr<IWICStream> stream;
     hr = factory->CreateStream(&stream);
@@ -115,9 +113,7 @@ bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error) {
     hr = frame->Initialize(properties.Get());
     if (Failed(hr, L"Frame::Initialize", error)) return false;
 
-    UINT targetWidth = job.outputWidth > 0 ? static_cast<UINT>(job.outputWidth) : job.width;
-    UINT targetHeight = job.outputHeight > 0 ? static_cast<UINT>(job.outputHeight) : job.height;
-    hr = frame->SetSize(targetWidth, targetHeight);
+    hr = frame->SetSize(outputWidth, outputHeight);
     if (Failed(hr, L"Frame::SetSize", error)) return false;
 
     if (job.format == ImageFormat::Jpeg) {

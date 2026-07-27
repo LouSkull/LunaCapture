@@ -1,0 +1,727 @@
+LUNA CAPTURE SOURCE-AVAILABLE LICENSE
+Version 1.0
+
+Copyright © 2026 ggrolton123
+All rights reserved.
+
+Project: Luna Capture
+Official Repository: https://github.com/LouSkull/LunaCapture
+Official Website: https://github.com/LouSkull/LunaCapture/releases
+
+This license applies to the Luna Capture software, its source code, compiled binaries, documentation, user interface, assets, plugins, themes, configuration files, and any other materials distributed as part of the project, collectively referred to as the “Software.”
+
+By downloading, accessing, using, compiling, copying, or modifying the Software, you agree to the terms of this license.
+
+1. LICENSE TYPE
+
+Luna Capture is source-available software.
+
+The source code is publicly available for viewing, studying, compiling, and private modification, but the Software is not distributed under an Open Source Initiative-approved open-source license.
+
+Access to the source code does not place the Software in the public domain and does not waive any copyright or ownership rights held by ggrolton123.
+
+2. GRANT OF LICENSE
+
+Subject to compliance with this license, ggrolton123 grants you a limited, non-exclusive, worldwide, revocable, non-transferable, and non-sublicensable license to:
+
+a. Download and use the official version of Luna Capture.
+
+b. View and study the source code.
+
+c. Compile the source code for your own use.
+
+d. Modify the source code for personal or internal use.
+
+e. Create private builds, themes, translations, plugins, configurations, and other modifications.
+
+f. Use the Software for personal purposes.
+
+g. Use the Software for commercial purposes as described in Section 3.
+
+h. Make reasonable backup copies for your own use.
+
+All rights not expressly granted by this license are reserved by ggrolton123.
+
+3. COMMERCIAL USE IS ALLOWED
+
+You may use Luna Capture for lawful commercial activities.
+
+Permitted commercial use includes, but is not limited to:
+
+a. Using Luna Capture in a business or professional environment.
+
+b. Using Luna Capture while performing paid work.
+
+c. Using Luna Capture to create screenshots, recordings, images, videos, presentations, tutorials, documentation, or other content.
+
+d. Monetizing content created with Luna Capture.
+
+e. Using Luna Capture during monetized livestreams or broadcasts.
+
+f. Using Luna Capture while providing paid editing, design, testing, support, gaming, development, media, or other professional services.
+
+g. Using a privately modified version of Luna Capture internally within your own business.
+
+h. Using Luna Capture on company-owned devices.
+
+i. Using Luna Capture for commercial software testing, quality assurance, documentation, demonstrations, and internal workflows.
+
+Commercial use does not grant permission to sell, license, rent, redistribute, sublicense, or provide paid access to the Software itself.
+
+You may charge for your own work, services, or content created using Luna Capture, but you may not charge customers for Luna Capture itself.
+
+4. PROHIBITION ON SELLING THE SOFTWARE
+
+You may not sell, resell, rent, lease, sublicense, or otherwise commercially distribute:
+
+a. Luna Capture.
+
+b. The Luna Capture source code.
+
+c. Official Luna Capture binaries.
+
+d. Modified versions of Luna Capture.
+
+e. Custom builds based on Luna Capture.
+
+f. Installers containing Luna Capture.
+
+g. Forks or derivative versions of Luna Capture.
+
+h. Plugins, themes, translations, patches, or modifications containing protected portions of Luna Capture.
+
+i. Access keys, licenses, accounts, activation codes, download links, or subscriptions whose primary purpose is to provide access to Luna Capture.
+
+j. Technical support packages where payment is required to obtain a copy of Luna Capture.
+
+You may not place Luna Capture behind a paywall.
+
+You may not require a payment, donation, subscription, membership, advertisement interaction, referral, purchase, or other compensation before a person may download the official Software.
+
+Voluntary donations that are not required to access Luna Capture may be accepted only by the original copyright holder or with the original copyright holder’s written permission.
+
+5. PRIVATE MODIFICATIONS
+
+You may modify Luna Capture for your own personal or internal commercial use.
+
+Permitted private modifications include:
+
+a. Changing the user interface.
+
+b. Adding or removing features.
+
+c. Creating private themes.
+
+d. Creating private translations.
+
+e. Creating private plugins.
+
+f. Changing hotkeys or capture behavior.
+
+g. Integrating the Software into a private internal workflow.
+
+h. Compiling a private custom build.
+
+i. Testing experimental features.
+
+j. Fixing bugs for your own use.
+
+A modified version must remain private unless written permission to distribute it has been granted by ggrolton123.
+
+6. NO DISTRIBUTION OF MODIFIED VERSIONS
+
+You may not publish, upload, share, send, transfer, give away, sell, or otherwise distribute any modified version of the Software.
+
+This prohibition applies whether the distribution is public, private, free, paid, temporary, or permanent.
+
+You may not distribute:
+
+a. Modified source code.
+
+b. Modified executable files.
+
+c. Modified libraries or DLL files.
+
+d. Modified installers.
+
+e. Modified portable builds.
+
+f. Modified archives.
+
+g. Forked repositories.
+
+h. Rebranded versions.
+
+i. Custom builds.
+
+j. Modified plugins or modules containing Luna Capture source code.
+
+k. Modified themes or assets containing protected Luna Capture materials.
+
+l. Translated versions of the Software.
+
+m. Versions with removed restrictions, credits, update checks, notices, or protections.
+
+n. Versions published under another project name.
+
+o. Versions described as unofficial, community-made, improved, premium, cracked, unlocked, modded, optimized, or portable.
+
+The fact that a modified version is distributed for free does not make the distribution permitted.
+
+7. NO SHARING OF MODIFIED SOURCE CODE
+
+You may not provide modified Luna Capture source code to another person or organization.
+
+This includes sharing through:
+
+a. GitHub.
+
+b. GitLab.
+
+c. Bitbucket.
+
+d. Discord.
+
+e. Telegram.
+
+f. Forums.
+
+g. Cloud storage.
+
+h. File-sharing services.
+
+i. Email.
+
+j. Private messages.
+
+k. Private repositories accessible by third parties.
+
+l. Physical storage devices.
+
+m. Peer-to-peer networks.
+
+n. Code snippets containing substantial protected parts of Luna Capture.
+
+You may discuss your own modifications in general terms, but you may not publish or provide code that enables third parties to reproduce or receive your modified version.
+
+8. TEAM AND ORGANIZATION USE
+
+An organization may use Luna Capture internally, including a privately modified version, provided that:
+
+a. The Software is used only by the organization’s employees, contractors, or authorized internal users.
+
+b. Access is limited to persons who require it for the organization’s internal activities.
+
+c. The Software is not distributed to customers, clients, partners, or the public.
+
+d. The Software is not sold, sublicensed, rented, or provided as a paid product.
+
+e. Modified source code is not published or shared outside the organization.
+
+f. The organization takes reasonable steps to prevent unauthorized copying or redistribution.
+
+Internal use by a commercial organization is permitted.
+
+Providing the Software to an unrelated third party is distribution and is not permitted unless the copy is an unchanged official version distributed in compliance with Section 9.
+
+9. DISTRIBUTION OF THE ORIGINAL VERSION
+
+You may redistribute only a complete, official, and unmodified version of Luna Capture.
+
+Redistribution of the original version is allowed only when all of the following conditions are satisfied:
+
+a. The Software is distributed completely free of charge.
+
+b. No payment, subscription, donation, membership, advertisement interaction, or other compensation is required.
+
+c. No files are modified.
+
+d. No files are removed.
+
+e. No files are replaced.
+
+f. No files are added to the official package.
+
+g. The original license remains included and unchanged.
+
+h. Copyright notices remain included and unchanged.
+
+i. The original author credit remains visible.
+
+j. The original project name remains unchanged.
+
+k. The package does not contain malware, adware, spyware, unwanted software, loaders, download managers, or unrelated bundled programs.
+
+l. The package is not presented as your own product.
+
+m. You do not claim to be the creator, owner, publisher, or official representative of Luna Capture.
+
+n. You clearly identify ggrolton123 as the original author.
+
+o. You provide a visible link to the official repository or official website.
+
+p. You do not falsely describe the version as newer, premium, exclusive, cracked, unlocked, improved, optimized, or officially approved.
+
+q. You do not use a misleading download page or domain designed to impersonate the official Luna Capture website.
+
+The preferred method of sharing Luna Capture is to link directly to the official repository:
+
+https://github.com/LouSkull/LunaCapture
+
+10. FILE INTEGRITY
+
+An original version means a version whose files are identical to the files officially published by ggrolton123.
+
+A version is no longer considered original if any executable, library, source file, asset, script, configuration, installer, archive, documentation file, license, notice, metadata field, icon, logo, version number, or other included material has been altered.
+
+Renaming the downloaded archive for personal storage does not by itself create a modified version, provided that the contents remain unchanged.
+
+However, the renamed archive may not use misleading wording that falsely suggests a different author, edition, certification, or official status.
+
+11. NO PAID ACCESS OR SOFTWARE-AS-A-SERVICE RESALE
+
+You may not create a paid service whose primary purpose is to provide customers with direct access to Luna Capture.
+
+You may not:
+
+a. Host Luna Capture and charge users to access its interface or features.
+
+b. Provide Luna Capture through a paid virtual desktop, remote application, cloud service, or subscription platform.
+
+c. Sell access to a bot, API, website, or service that substantially exposes Luna Capture functionality as a standalone product.
+
+d. Charge a fee specifically for downloading, installing, unlocking, activating, or enabling Luna Capture.
+
+e. Present Luna Capture as a feature of a paid software bundle when customers are effectively paying to receive or access Luna Capture.
+
+This restriction does not prevent you from using Luna Capture internally while providing your own separate professional service.
+
+For example, you may use Luna Capture while performing paid video editing, technical support, software testing, content creation, or design work.
+
+12. NO BUNDLING
+
+You may not bundle Luna Capture with another application, installer, mod pack, software collection, operating system image, game package, driver package, plugin collection, or commercial product without written permission from ggrolton123.
+
+This restriction applies even when the bundle is distributed for free.
+
+You may provide a link to the official Luna Capture download page instead.
+
+13. NO RELICENSING
+
+You may not:
+
+a. Replace this license with another license.
+
+b. Remove this license.
+
+c. claim that Luna Capture is licensed under MIT, Apache, GPL, BSD, MPL, Creative Commons, Unlicense, public domain, or any other license.
+
+d. Apply a different license to a fork or derivative version.
+
+e. sublicense any rights granted under this license.
+
+f. grant third parties permissions that you do not possess.
+
+g. claim that Luna Capture has no copyright restrictions.
+
+h. use protected Luna Capture source code in another project under incompatible or different licensing terms.
+
+Any separate license or permission must be issued directly in writing by ggrolton123.
+
+14. ATTRIBUTION
+
+You may not remove, obscure, alter, or replace:
+
+a. The name ggrolton123.
+
+b. The Luna Capture project name.
+
+c. Copyright notices.
+
+d. License notices.
+
+e. Credits.
+
+f. Links to the official repository.
+
+g. Links to the official website.
+
+h. Author information contained in source files.
+
+i. Information displayed in an “About” page or similar interface.
+
+j. Digital signatures or package metadata identifying the original project.
+
+Private user-interface modifications may hide credits during your own personal use, but the original attribution and license information must remain present in the source code and project files.
+
+15. NAME, LOGO, AND BRANDING
+
+This license does not grant permission to use the Luna Capture name, logo, visual identity, project branding, domain names, or the name ggrolton123 to promote a separate product or service.
+
+You may not state or imply that:
+
+a. Your product is an official Luna Capture release.
+
+b. Your modification is approved by ggrolton123.
+
+c. You are affiliated with ggrolton123.
+
+d. You are an official Luna Capture developer, distributor, representative, or partner.
+
+e. Luna Capture endorses your product, service, website, community, or organization.
+
+f. A modified version is an official update, premium edition, successor, or replacement for Luna Capture.
+
+You may truthfully state that you use Luna Capture, provided that the statement does not imply sponsorship or endorsement.
+
+16. PLUGINS, THEMES, AND EXTENSIONS
+
+You may create plugins, themes, translations, extensions, scripts, or integrations for private use.
+
+You may distribute a separately created extension only if all of the following are true:
+
+a. It does not contain Luna Capture source code.
+
+b. It does not contain modified Luna Capture binaries.
+
+c. It does not include Luna Capture copyrighted assets.
+
+d. It does not bypass security, licensing, attribution, update, or integrity protections.
+
+e. It does not impersonate an official Luna Capture component.
+
+f. It requires users to obtain Luna Capture separately from the official source.
+
+g. It does not include or redistribute the Luna Capture application.
+
+h. It complies with all other terms of this license.
+
+Any extension containing copied or modified Luna Capture code is considered a derivative version and may not be distributed without written permission.
+
+17. PATCHES AND MODIFICATION TOOLS
+
+You may not distribute patches, scripts, loaders, injectors, binary modifications, automated tools, or instructions primarily designed to transform the official Luna Capture release into an unauthorized modified version.
+
+General educational discussion is allowed.
+
+However, distributing ready-to-use modification packages, replacement files, compiled patches, or automated source modifications is not allowed without written permission from ggrolton123.
+
+18. SECURITY AND PROTECTION MECHANISMS
+
+You may not distribute a version that disables, bypasses, removes, or interferes with:
+
+a. Update verification.
+
+b. File integrity checks.
+
+c. License notices.
+
+d. Copyright notices.
+
+e. Author attribution.
+
+f. Security checks.
+
+g. Abuse-prevention systems.
+
+h. Official repository links.
+
+i. Digital signatures.
+
+j. Version verification.
+
+k. Any technical protection implemented by the author.
+
+Private research and modification are permitted only when lawful and when the resulting modified materials remain private.
+
+19. PROHIBITED USE
+
+You may not use Luna Capture:
+
+a. To violate applicable law.
+
+b. To distribute malware, spyware, ransomware, credential stealers, or other malicious software.
+
+c. To gain unauthorized access to devices, accounts, networks, or data.
+
+d. To secretly monitor another person where consent or legal authorization is required.
+
+e. To violate privacy, intellectual property, confidentiality, or data protection rights.
+
+f. To impersonate the original author or official project.
+
+g. To distribute an infected, damaged, misleading, or intentionally defective version under the Luna Capture name.
+
+h. To facilitate fraud, deception, theft, harassment, or abuse.
+
+i. To misrepresent captured or edited material as authentic evidence where doing so would be unlawful or fraudulent.
+
+20. THIRD-PARTY COMPONENTS
+
+Luna Capture may include or interact with third-party libraries, frameworks, code, fonts, assets, or other components.
+
+Third-party components remain subject to their respective licenses and copyright notices.
+
+Nothing in this license overrides rights or obligations imposed by a valid third-party license.
+
+Where a third-party license grants broader rights to a specific third-party component, those broader rights apply only to that component and not to Luna Capture as a whole.
+
+21. USER-CREATED CONTENT
+
+You retain rights to screenshots, videos, images, recordings, documents, and other original content that you create using Luna Capture, subject to any rights held by third parties in the captured material.
+
+ggrolton123 does not claim ownership of your original user-created content merely because Luna Capture was used to create or capture it.
+
+You are responsible for ensuring that your use, capture, publication, and monetization of content complies with applicable law and third-party rights.
+
+22. CONTRIBUTIONS
+
+If you voluntarily submit code, fixes, translations, designs, ideas, documentation, assets, or other contributions to ggrolton123 for possible inclusion in Luna Capture, you represent that you have the legal right to submit the contribution.
+
+Unless otherwise agreed in writing, you grant ggrolton123 a perpetual, worldwide, irrevocable, transferable, sublicensable, royalty-free license to:
+
+a. Use the contribution.
+
+b. Modify the contribution.
+
+c. Reproduce the contribution.
+
+d. Publish the contribution.
+
+e. Distribute the contribution.
+
+f. Include the contribution in Luna Capture.
+
+g. License or relicense the contribution as part of Luna Capture.
+
+Submitting a contribution does not guarantee that it will be accepted, used, credited, or included in the project.
+
+23. SEPARATE PERMISSION
+
+ggrolton123 may grant separate written permission for activities otherwise prohibited by this license.
+
+Separate permission may include permission to:
+
+a. Distribute a modified version.
+
+b. Publish a fork.
+
+c. sell a custom version.
+
+d. Bundle Luna Capture with another product.
+
+e. Use Luna Capture branding.
+
+f. Redistribute modified source code.
+
+g. Provide hosted access to Luna Capture.
+
+h. Apply alternative licensing terms.
+
+Any exception must be explicitly granted in writing by ggrolton123.
+
+Permission granted to one person or organization does not automatically apply to another person or organization.
+
+Silence, lack of response, public discussion, or failure to enforce a restriction does not constitute permission.
+
+24. TERMINATION
+
+Your rights under this license terminate automatically if you violate any term of this license.
+
+Upon termination, you must:
+
+a. Stop using unauthorized copies of the Software.
+
+b. Stop distributing the Software.
+
+c. Remove all unauthorized public and private distributions.
+
+d. Delete all prohibited modified versions provided to third parties.
+
+e. Remove unauthorized repositories, downloads, installers, patches, and mirrors.
+
+f. Stop using Luna Capture branding in violation of this license.
+
+g. Comply with reasonable requests from ggrolton123 to correct the violation.
+
+Termination does not remove liability for violations that occurred before termination.
+
+ggrolton123 may, at their sole discretion, restore your license rights after the violation has been fully corrected.
+
+25. ENFORCEMENT
+
+Unauthorized copying, distribution, sale, relicensing, rebranding, or publication of modified versions may constitute copyright infringement and breach of license.
+
+ggrolton123 reserves the right to:
+
+a. Request removal of unauthorized content.
+
+b. Submit copyright or platform takedown requests.
+
+c. Revoke permissions granted under this license.
+
+d. Seek injunctive relief.
+
+e. Seek damages or other remedies available under applicable law.
+
+f. Contact hosting providers, repositories, payment providers, marketplaces, or other relevant services regarding violations.
+
+Failure to immediately enforce a provision does not waive the right to enforce it later.
+
+26. DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED “AS IS” AND “AS AVAILABLE,” WITHOUT WARRANTY OF ANY KIND.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, GGROLTON123 DISCLAIMS ALL EXPRESS, IMPLIED, AND STATUTORY WARRANTIES, INCLUDING WARRANTIES OF:
+
+a. MERCHANTABILITY.
+
+b. FITNESS FOR A PARTICULAR PURPOSE.
+
+c. NON-INFRINGEMENT.
+
+d. ACCURACY.
+
+e. RELIABILITY.
+
+f. COMPATIBILITY.
+
+g. AVAILABILITY.
+
+h. SECURITY.
+
+i. ERROR-FREE OPERATION.
+
+j. UNINTERRUPTED OPERATION.
+
+You use the Software entirely at your own risk.
+
+27. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, GGROLTON123 SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES ARISING FROM OR RELATED TO THE SOFTWARE.
+
+This includes, without limitation:
+
+a. Loss of data.
+
+b. Loss of profits.
+
+c. Loss of revenue.
+
+d. Loss of business opportunities.
+
+e. Device or software damage.
+
+f. Account restrictions or bans.
+
+g. Service interruptions.
+
+h. Compatibility problems.
+
+i. Security incidents.
+
+j. Claims made by third parties.
+
+k. Problems caused by unofficial or modified versions.
+
+l. Problems caused by third-party applications, games, drivers, operating systems, or services.
+
+Some jurisdictions do not allow certain liability exclusions, so some limitations may not apply to you.
+
+28. INDEMNIFICATION
+
+To the extent permitted by law, you agree to be responsible for claims, damages, losses, liabilities, and expenses arising from:
+
+a. Your violation of this license.
+
+b. Your unlawful use of the Software.
+
+c. Your distribution of an unauthorized version.
+
+d. Your modifications to the Software.
+
+e. Your violation of third-party rights.
+
+f. Malicious or harmful functionality added by you.
+
+g. Misrepresentations made by you regarding Luna Capture or ggrolton123.
+
+29. LICENSE UPDATES
+
+ggrolton123 may publish updated versions of this license.
+
+A specific release of Luna Capture remains governed by the license version included with that release unless ggrolton123 expressly states otherwise.
+
+You may not select a different license version merely to avoid restrictions that apply to your copy of the Software.
+
+30. SEVERABILITY
+
+If any provision of this license is found to be invalid, illegal, or unenforceable, the remaining provisions will continue in full force and effect.
+
+The invalid provision shall be interpreted or modified only to the minimum extent necessary to make it enforceable while preserving its original purpose as closely as possible.
+
+31. NO WAIVER
+
+Failure by ggrolton123 to enforce any provision of this license does not constitute a waiver of that provision or any other provision.
+
+A waiver is valid only when explicitly provided in writing by ggrolton123.
+
+32. ENTIRE AGREEMENT
+
+This license constitutes the entire agreement between you and ggrolton123 regarding the use, modification, and distribution of Luna Capture, unless a separate written agreement has been issued by ggrolton123.
+
+33. CONTACT AND OFFICIAL SOURCES
+
+Author: ggrolton123
+Project: Luna Capture
+
+Official Repository:
+https://github.com/LouSkull/LunaCapture
+
+Official Website:
+https://github.com/LouSkull/LunaCapture/releases
+
+No public contact email is provided.
+
+Requests for special permission must be submitted through an official communication method made available on the official Luna Capture website or repository.
+
+34. PLAIN-LANGUAGE SUMMARY
+
+This summary is provided for convenience only. If it conflicts with the full license, the full license controls.
+
+YOU MAY:
+
+— Download Luna Capture for free.
+— Use Luna Capture personally.
+— Use Luna Capture commercially.
+— Use Luna Capture at work or in a business.
+— Make money from content or services created using Luna Capture.
+— View and study the source code.
+— Modify the source code for yourself.
+— Use a private modified version inside your organization.
+— Compile private custom builds.
+— Share a completely original and unmodified official version for free.
+— Link other people to the official Luna Capture repository.
+
+YOU MAY NOT:
+
+— Sell Luna Capture.
+— Charge money for downloading Luna Capture.
+— Charge for access to Luna Capture itself.
+— Sell modified builds.
+— Publish modified source code.
+— Send modified source code to other people.
+— Share modified executable files.
+— Publish forks.
+— Distribute translated or rebranded versions.
+— Remove credits or copyright notices.
+— Replace this license.
+— Claim that you created Luna Capture.
+— Bundle Luna Capture with another product without permission.
+— Put Luna Capture behind a paywall.
+— Distribute unofficial, infected, cracked, unlocked, or modified versions.
+— Use Luna Capture branding to promote an unrelated product.
+
+Commercial use of the Software is allowed.
+
+Commercial sale, resale, licensing, or distribution of the Software itself is not allowed.

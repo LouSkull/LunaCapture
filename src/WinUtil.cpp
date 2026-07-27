@@ -1,5 +1,7 @@
 #include "WinUtil.hpp"
 #include "CoreUtils.hpp"
+#include "UiGfx.hpp"
+#include "UiIcons.hpp"
 
 #include <ShlObj.h>
 #include <ShObjIdl.h>
@@ -95,6 +97,9 @@ struct NumericDialogState {
     int minimum = 0;
     int maximum = 0;
     int result = 0;
+    bool textMode = false;
+    std::wstring textResult;
+    std::size_t maximumLength = 64;
     bool done = false;
     bool accepted = false;
     HWND edit = nullptr;
@@ -108,10 +113,11 @@ void ApplyDialogChrome(HWND window) {
     GetClientRect(window, &client);
     const int width = (std::max)(1L, client.right - client.left);
     const int height = (std::max)(1L, client.bottom - client.top);
-    HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1, 24, 24);
+    const int radius = ui::ResolveThemeRadius(12);
+    HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
     if (region && !SetWindowRgn(window, region, TRUE)) DeleteObject(region);
 
-    const BOOL dark = TRUE;
+    const BOOL dark = ui::CurrentThemePalette().appearance == ui::ThemeAppearance::Light ? FALSE : TRUE;
     const DWORD round = 2;  // DWMWCP_ROUND
     const COLORREF noBorder = 0xFFFFFFFE;  // DWMWA_COLOR_NONE
     DwmSetWindowAttribute(window, 20, &dark, sizeof(dark));
@@ -120,15 +126,20 @@ void ApplyDialogChrome(HWND window) {
     DwmSetWindowAttribute(window, 34, &noBorder, sizeof(noBorder));
 }
 
-void DrawDialogButton(const DRAWITEMSTRUCT& item, const wchar_t* text, bool primary, HFONT font) {
+void DrawDialogButton(const DRAWITEMSTRUCT& item, const wchar_t* text, bool primary, HFONT font,
+                      bool destructive = false) {
+    const std::wstring translated = ui::TranslateText(text ? text : L"");
     const bool pressed = (item.itemState & ODS_SELECTED) != 0;
-    const COLORREF fill = primary ? (pressed ? RGB(62, 105, 181) : RGB(73, 124, 211))
-                                  : (pressed ? RGB(44, 49, 60) : RGB(34, 38, 47));
-    HBRUSH outside = CreateSolidBrush(RGB(15, 17, 22));
+    const COLORREF fill = destructive ? (pressed ? RGB(155, 52, 66) : RGB(186, 62, 78))
+                        : primary     ? (pressed ? RGB(62, 105, 181) : RGB(73, 124, 211))
+                                      : (pressed ? RGB(44, 49, 60) : RGB(34, 38, 47));
+    HBRUSH outside = CreateSolidBrush(ui::ResolveThemeColor(RGB(15, 17, 22)));
     FillRect(item.hDC, &item.rcItem, outside);
     DeleteObject(outside);
-    HBRUSH brush = CreateSolidBrush(fill);
-    HPEN pen = CreatePen(PS_SOLID, 1, primary ? RGB(91, 145, 232) : RGB(60, 66, 78));
+    HBRUSH brush = CreateSolidBrush(ui::ResolveThemeColor(fill));
+    HPEN pen = CreatePen(PS_SOLID, 1, ui::ResolveThemeColor(destructive ? RGB(216, 92, 108)
+                                                          : primary     ? RGB(91, 145, 232)
+                                                                        : RGB(60, 66, 78)));
     HGDIOBJ oldBrush = SelectObject(item.hDC, brush);
     HGDIOBJ oldPen = SelectObject(item.hDC, pen);
     RoundRect(item.hDC, item.rcItem.left, item.rcItem.top, item.rcItem.right, item.rcItem.bottom, 14, 14);
@@ -137,11 +148,170 @@ void DrawDialogButton(const DRAWITEMSTRUCT& item, const wchar_t* text, bool prim
     DeleteObject(brush);
     DeleteObject(pen);
     SetBkMode(item.hDC, TRANSPARENT);
-    SetTextColor(item.hDC, primary ? RGB(250, 252, 255) : RGB(202, 208, 219));
+    SetTextColor(item.hDC, ui::ResolveThemeColor(primary || destructive ? RGB(250, 252, 255) : RGB(202, 208, 219)));
     HGDIOBJ oldFont = SelectObject(item.hDC, font);
     RECT textRect = item.rcItem;
-    DrawTextW(item.hDC, text, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(item.hDC, translated.c_str(), -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(item.hDC, oldFont);
+}
+
+constexpr wchar_t kConfirmDialogClass[] = L"LunaCaptureConfirmDialog";
+
+struct ConfirmDialogState {
+    std::wstring title;
+    std::wstring detail;
+    std::wstring confirmLabel;
+    bool destructive = true;
+    bool noticeOnly = false;
+    bool errorTone = false;
+    bool done = false;
+    bool accepted = false;
+    HFONT titleFont = nullptr;
+    HFONT normalFont = nullptr;
+};
+
+LRESULT CALLBACK ConfirmDialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* state = reinterpret_cast<ConfirmDialogState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        state = static_cast<ConfirmDialogState*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+    }
+    if (!state) return DefWindowProcW(window, message, wParam, lParam);
+    switch (message) {
+        case WM_CREATE: {
+            state->titleFont = ui::CreateThemeFont(20, FW_SEMIBOLD);
+            state->normalFont = ui::CreateThemeFont(15, FW_NORMAL);
+            if (!state->noticeOnly) {
+                HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel",
+                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                              288, 196, 104, 38, window,
+                                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
+                                              GetModuleHandleW(nullptr), nullptr);
+                SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+                SetFocus(cancel);  // destructive default: never the confirm button
+            }
+            HWND accept = CreateWindowExW(0, L"BUTTON", L"OK",
+                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                          state->noticeOnly ? 404 : 404, 196, 112, 38, window,
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
+                                          GetModuleHandleW(nullptr), nullptr);
+            SendMessageW(accept, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            if (state->noticeOnly) SetFocus(accept);
+            ApplyDialogChrome(window);
+            return 0;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDCANCEL) { state->done = true; return 0; }
+            if (LOWORD(wParam) == IDOK) { state->accepted = true; state->done = true; return 0; }
+            break;
+        case WM_DRAWITEM: {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (!item) return FALSE;
+            if (item->CtlID == IDOK) {
+                const std::wstring label = state->noticeOnly ? L"Got it" : state->confirmLabel;
+                DrawDialogButton(*item, label.c_str(), !state->destructive, state->normalFont,
+                                 state->destructive && !state->noticeOnly);
+            } else {
+                DrawDialogButton(*item, L"Cancel", false, state->normalFont);
+            }
+            return TRUE;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            HDC dc = BeginPaint(window, &paint);
+            RECT client{};
+            GetClientRect(window, &client);
+            HBRUSH background = CreateSolidBrush(ui::ResolveThemeColor(RGB(15, 17, 22)));
+            FillRect(dc, &client, background);
+            DeleteObject(background);
+            ui::PaintThemeBackdrop(dc, client, ui::ThemeSurface::Dialog, GetTickCount64());
+
+            const COLORREF accent = state->errorTone || state->destructive ? RGB(243, 112, 126)
+                                  : RGB(110, 168, 255);
+            const UiIcon glyph = state->errorTone ? UiIcon::Close
+                               : state->destructive ? UiIcon::Warning
+                               : UiIcon::Bell;
+            const RECT badge{28, 30, 84, 86};
+            ui::FillEllipse(dc, badge, ui::MixColor(RGB(15, 17, 22), accent, 42.0f / 255.0f));
+            DrawUiIcon(dc, glyph, RECT{badge.left + 15, badge.top + 15, badge.right - 15, badge.bottom - 15},
+                       accent, 2);
+
+            SetBkMode(dc, TRANSPARENT);
+            HGDIOBJ oldFont = SelectObject(dc, state->titleFont);
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(242, 245, 251)));
+            RECT title{104, 30, 512, 64};
+            const std::wstring translatedTitle = ui::TranslateText(state->title);
+            DrawTextW(dc, translatedTitle.c_str(), -1, &title,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            SelectObject(dc, state->normalFont);
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(150, 158, 173)));
+            RECT detail{104, 68, 512, 180};
+            const std::wstring translatedDetail = ui::TranslateText(state->detail);
+            DrawTextW(dc, translatedDetail.c_str(), -1, &detail, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            SelectObject(dc, oldFont);
+            EndPaint(window, &paint);
+            return 0;
+        }
+        case WM_ERASEBKGND: return 1;
+        case WM_CLOSE: state->done = true; return 0;
+        case WM_DESTROY:
+            if (state->titleFont) DeleteObject(state->titleFont);
+            if (state->normalFont) DeleteObject(state->normalFont);
+            state->titleFont = nullptr;
+            state->normalFont = nullptr;
+            return 0;
+        default: break;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+bool RunConfirmDialog(HWND owner, ConfirmDialogState& state) {
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = ConfirmDialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kConfirmDialogClass;
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+    RECT work{};
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    if (GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitorInfo)) work = monitorInfo.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    constexpr int kWidth = 540;
+    constexpr int kHeight = 260;
+    const int x = work.left + ((work.right - work.left) - kWidth) / 2;
+    const int y = work.top + ((work.bottom - work.top) - kHeight) / 2;
+    HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, kConfirmDialogClass, state.title.c_str(),
+                                  WS_POPUP, x, y, kWidth, kHeight, owner, nullptr,
+                                  GetModuleHandleW(nullptr), &state);
+    if (!dialog) return false;
+    if (owner) EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    SetForegroundWindow(dialog);
+    while (!state.done && IsWindow(dialog)) {
+        MSG message{};
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status <= 0) {
+            if (status == 0) PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_ESCAPE) {
+            state.done = true;
+            continue;
+        }
+        if (!IsDialogMessageW(dialog, &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    if (IsWindow(dialog)) DestroyWindow(dialog);
+    if (owner) {
+        EnableWindow(owner, TRUE);
+        SetForegroundWindow(owner);
+    }
+    return state.accepted;
 }
 
 LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -154,23 +324,25 @@ LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPA
     if (!state) return DefWindowProcW(window, message, wParam, lParam);
     switch (message) {
         case WM_CREATE: {
-            state->titleFont = CreateFontW(-20, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
-                                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-            state->normalFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
-                                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-            state->editBrush = CreateSolidBrush(RGB(25, 29, 36));
-            state->edit = CreateWindowExW(0, L"EDIT", std::to_wstring(state->result).c_str(),
-                                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL,
-                                           24, 100, 382, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNumericEditId)),
+            state->titleFont = ui::CreateThemeFont(20, FW_SEMIBOLD);
+            state->normalFont = ui::CreateThemeFont(15, FW_NORMAL);
+            state->editBrush = CreateSolidBrush(ui::ResolveThemeColor(RGB(25, 29, 36)));
+            const std::wstring initial = state->textMode ? state->textResult : std::to_wstring(state->result);
+            const DWORD editStyle = WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL |
+                                    (state->textMode ? 0 : ES_NUMBER);
+            state->edit = CreateWindowExW(0, L"EDIT", initial.c_str(), editStyle,
+                                           24, 108, 492, 42, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNumericEditId)),
                                            GetModuleHandleW(nullptr), nullptr);
             HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                          218, 158, 88, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), GetModuleHandleW(nullptr), nullptr);
+                                          320, 204, 90, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), GetModuleHandleW(nullptr), nullptr);
             HWND accept = CreateWindowExW(0, L"BUTTON", L"Apply", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                          318, 158, 88, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), GetModuleHandleW(nullptr), nullptr);
+                                          422, 204, 94, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), GetModuleHandleW(nullptr), nullptr);
             SendMessageW(state->edit, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
-            SetWindowTheme(state->edit, L"DarkMode_Explorer", nullptr);
+            SendMessageW(state->edit, EM_SETLIMITTEXT,
+                         static_cast<WPARAM>(state->textMode ? state->maximumLength : 63), 0);
+            SetWindowTheme(state->edit,
+                           ui::CurrentThemePalette().appearance == ui::ThemeAppearance::Light ? L"Explorer" : L"DarkMode_Explorer",
+                           nullptr);
             SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
             SendMessageW(accept, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
             SendMessageW(state->edit, EM_SETSEL, 0, -1);
@@ -181,6 +353,23 @@ LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPA
         case WM_COMMAND:
             if (LOWORD(wParam) == IDCANCEL) { state->done = true; return 0; }
             if (LOWORD(wParam) == IDOK) {
+                if (state->textMode) {
+                    std::wstring value(state->maximumLength + 1, L'\0');
+                    const int length = GetWindowTextW(state->edit, value.data(), static_cast<int>(value.size()));
+                    value.resize((std::max)(0, length));
+                    while (!value.empty() && std::iswspace(value.front())) value.erase(value.begin());
+                    while (!value.empty() && std::iswspace(value.back())) value.pop_back();
+                    if (value.empty()) {
+                        state->error = L"Enter a non-empty profile name";
+                        MessageBeep(MB_ICONWARNING);
+                        InvalidateRect(window, nullptr, FALSE);
+                        return 0;
+                    }
+                    state->textResult = std::move(value);
+                    state->accepted = true;
+                    state->done = true;
+                    return 0;
+                }
                 wchar_t value[64]{};
                 GetWindowTextW(state->edit, value, static_cast<int>(std::size(value)));
                 wchar_t* end = nullptr;
@@ -202,13 +391,14 @@ LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPA
         case WM_DRAWITEM: {
             const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
             if (!item) return FALSE;
-            DrawDialogButton(*item, item->CtlID == IDOK ? L"Apply" : L"Cancel", item->CtlID == IDOK, state->normalFont);
+            DrawDialogButton(*item, item->CtlID == IDOK ? (state->textMode ? L"Save" : L"Apply") : L"Cancel",
+                             item->CtlID == IDOK, state->normalFont);
             return TRUE;
         }
         case WM_CTLCOLOREDIT: {
             HDC dc = reinterpret_cast<HDC>(wParam);
-            SetTextColor(dc, RGB(238, 242, 249));
-            SetBkColor(dc, RGB(25, 29, 36));
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(238, 242, 249)));
+            SetBkColor(dc, ui::ResolveThemeColor(RGB(25, 29, 36)));
             return reinterpret_cast<LRESULT>(state->editBrush);
         }
         case WM_PAINT: {
@@ -216,27 +406,34 @@ LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPA
             HDC dc = BeginPaint(window, &paint);
             RECT client{};
             GetClientRect(window, &client);
-            HBRUSH background = CreateSolidBrush(RGB(15, 17, 22));
+            HBRUSH background = CreateSolidBrush(ui::ResolveThemeColor(RGB(15, 17, 22)));
             FillRect(dc, &client, background);
             DeleteObject(background);
+            ui::PaintThemeBackdrop(dc, client, ui::ThemeSurface::Dialog, GetTickCount64());
             SetBkMode(dc, TRANSPARENT);
             HGDIOBJ oldFont = SelectObject(dc, state->titleFont);
-            SetTextColor(dc, RGB(242, 245, 251));
-            RECT title{24, 17, 406, 49};
-            DrawTextW(dc, state->title.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(242, 245, 251)));
+            RECT title{24, 17, 516, 49};
+            const std::wstring translatedTitle = ui::TranslateText(state->title);
+            DrawTextW(dc, translatedTitle.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             SelectObject(dc, state->normalFont);
-            SetTextColor(dc, RGB(130, 139, 154));
-            RECT detail{24, 48, 406, 86};
-            DrawTextW(dc, state->detail.c_str(), -1, &detail, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(130, 139, 154)));
+            RECT detail{24, 49, 516, 99};
+            const std::wstring translatedDetail = ui::TranslateText(state->detail);
+            DrawTextW(dc, translatedDetail.c_str(), -1, &detail, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
             if (!state->error.empty()) {
-                SetTextColor(dc, RGB(243, 112, 126));
-                RECT error{24, 137, 205, 196};
-                DrawTextW(dc, state->error.c_str(), -1, &error, DT_LEFT | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+                SetTextColor(dc, ui::ResolveThemeColor(RGB(243, 112, 126)));
+                RECT error{24, 158, 304, 242};
+                const std::wstring translatedError = ui::TranslateText(state->error);
+                DrawTextW(dc, translatedError.c_str(), -1, &error, DT_LEFT | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
             } else {
-                SetTextColor(dc, RGB(89, 99, 114));
-                const std::wstring range = L"Allowed: " + std::to_wstring(state->minimum) + L"–" + std::to_wstring(state->maximum);
-                RECT rangeRect{24, 137, 205, 196};
-                DrawTextW(dc, range.c_str(), -1, &rangeRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                SetTextColor(dc, ui::ResolveThemeColor(RGB(89, 99, 114)));
+                const std::wstring range = state->textMode ?
+                    (L"Maximum: " + std::to_wstring(state->maximumLength) + L" characters") :
+                    (L"Allowed: " + std::to_wstring(state->minimum) + L"–" + std::to_wstring(state->maximum));
+                RECT rangeRect{24, 158, 304, 242};
+                const std::wstring translatedRange = ui::TranslateText(range);
+                DrawTextW(dc, translatedRange.c_str(), -1, &rangeRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
             SelectObject(dc, oldFont);
             EndPaint(window, &paint);
@@ -281,13 +478,9 @@ LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPAR
     if (!state) return DefWindowProcW(window, message, wParam, lParam);
     switch (message) {
         case WM_CREATE: {
-            state->titleFont = CreateFontW(-20, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
-                                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-            state->normalFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
-                                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-            state->listBrush = CreateSolidBrush(RGB(24, 28, 35));
+            state->titleFont = ui::CreateThemeFont(20, FW_SEMIBOLD);
+            state->normalFont = ui::CreateThemeFont(15, FW_NORMAL);
+            state->listBrush = CreateSolidBrush(ui::ResolveThemeColor(RGB(24, 28, 35)));
             const int listTop = state->detail.empty() ? 58 : 82;
             // Every click toggles one monitor. Requiring Ctrl here is easy to miss in a compact popup.
             const DWORD selectionStyle = state->multiple ? LBS_MULTIPLESEL : 0;
@@ -296,9 +489,14 @@ LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPAR
                 20, listTop, 500, state->height - listTop - 70, window,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChoiceListId)), GetModuleHandleW(nullptr), nullptr);
             SendMessageW(state->list, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
-            SetWindowTheme(state->list, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(state->list,
+                           ui::CurrentThemePalette().appearance == ui::ThemeAppearance::Light ? L"Explorer" : L"DarkMode_Explorer",
+                           nullptr);
             SendMessageW(state->list, LB_SETITEMHEIGHT, 0, 28);
-            for (const auto& item : state->items) SendMessageW(state->list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+            for (const auto& item : state->items) {
+                const std::wstring translated = ui::TranslateText(item);
+                SendMessageW(state->list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(translated.c_str()));
+            }
             if (state->multiple) {
                 for (std::size_t index = 0; index < state->items.size() && index < 32; ++index) {
                     if ((state->resultMask & (1u << index)) != 0) {
@@ -353,8 +551,8 @@ LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPAR
         }
         case WM_CTLCOLORLISTBOX: {
             HDC dc = reinterpret_cast<HDC>(wParam);
-            SetTextColor(dc, RGB(224, 229, 238));
-            SetBkColor(dc, RGB(24, 28, 35));
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(224, 229, 238)));
+            SetBkColor(dc, ui::ResolveThemeColor(RGB(24, 28, 35)));
             return reinterpret_cast<LRESULT>(state->listBrush);
         }
         case WM_PAINT: {
@@ -362,19 +560,22 @@ LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPAR
             HDC dc = BeginPaint(window, &paint);
             RECT client{};
             GetClientRect(window, &client);
-            HBRUSH brush = CreateSolidBrush(RGB(15, 17, 22));
+            HBRUSH brush = CreateSolidBrush(ui::ResolveThemeColor(RGB(15, 17, 22)));
             FillRect(dc, &client, brush);
             DeleteObject(brush);
+            ui::PaintThemeBackdrop(dc, client, ui::ThemeSurface::Dialog, GetTickCount64());
             SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, RGB(242, 245, 251));
+            SetTextColor(dc, ui::ResolveThemeColor(RGB(242, 245, 251)));
             HGDIOBJ oldFont = SelectObject(dc, state->titleFont);
             RECT title{20, 14, 520, 49};
-            DrawTextW(dc, state->title.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            const std::wstring translatedTitle = ui::TranslateText(state->title);
+            DrawTextW(dc, translatedTitle.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             if (!state->detail.empty()) {
                 SelectObject(dc, state->normalFont);
-                SetTextColor(dc, RGB(128, 138, 154));
+                SetTextColor(dc, ui::ResolveThemeColor(RGB(128, 138, 154)));
                 RECT detail{20, 46, 520, 78};
-                DrawTextW(dc, state->detail.c_str(), -1, &detail, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                const std::wstring translatedDetail = ui::TranslateText(state->detail);
+                DrawTextW(dc, translatedDetail.c_str(), -1, &detail, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
             SelectObject(dc, oldFont);
             EndPaint(window, &paint);
@@ -428,12 +629,54 @@ bool EnsureDirectoryExists(const std::wstring& path) {
     return !ec && std::filesystem::is_directory(path, ec);
 }
 
+void ApplyChronologicalFolderView(const std::wstring& directory) {
+    // A folder under Pictures or Videos inherits that library's Explorer template,
+    // and those templates sort by "Date taken" / "Media created" — metadata that
+    // screen captures do not carry. Explorer then falls back to an order that
+    // looks random. Pinning the folder to the generic template makes it sort by
+    // name instead, and our filenames are chronological by construction
+    // (YYYY-MM-DD_HH-MM-SS_mmm_...), so name order *is* date order.
+    if (directory.empty() || !EnsureDirectoryExists(directory)) return;
+
+    const std::filesystem::path desktopIni = std::filesystem::path(directory) / L"desktop.ini";
+    std::error_code ec;
+
+    // Never clobber a customization the user (or another tool) already made.
+    if (std::filesystem::exists(desktopIni, ec)) {
+        wchar_t existing[64]{};
+        GetPrivateProfileStringW(L"ViewState", L"FolderType", L"", existing,
+                                 static_cast<DWORD>(std::size(existing)), desktopIni.c_str());
+        if (existing[0] != L'\0') return;
+    }
+
+    // The file must be writable before we can update a hidden/system copy.
+    SetFileAttributesW(desktopIni.c_str(), FILE_ATTRIBUTE_NORMAL);
+    const bool wrote =
+        WritePrivateProfileStringW(L"ViewState", L"Mode", L"", desktopIni.c_str()) &&
+        WritePrivateProfileStringW(L"ViewState", L"Vid", L"", desktopIni.c_str()) &&
+        WritePrivateProfileStringW(L"ViewState", L"FolderType", L"Generic", desktopIni.c_str());
+    if (!wrote) {
+        SetFileAttributesW(desktopIni.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+        return;
+    }
+    SetFileAttributesW(desktopIni.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+
+    // Windows only reads desktop.ini from a folder flagged read-only or system.
+    // Read-only is the safe one: the bit is meaningless for folders, while a
+    // system folder would vanish for anyone hiding protected operating files.
+    const DWORD attributes = GetFileAttributesW(directory.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) == 0) {
+        SetFileAttributesW(directory.c_str(), attributes | FILE_ATTRIBUTE_READONLY);
+    }
+}
+
 void OpenFolderInExplorer(const std::wstring& path) {
     EnsureDirectoryExists(path);
     ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 std::wstring FormatHotkey(UINT modifiers, UINT vk) {
+    if (vk == 0) return L"Disabled";
     std::wstring result;
     auto add = [&result](const wchar_t* part) {
         if (!result.empty()) result += L" + ";
@@ -447,6 +690,26 @@ std::wstring FormatHotkey(UINT modifiers, UINT vk) {
     if (!result.empty()) result += L" + ";
     result += key;
     return result;
+}
+
+bool ConfirmAction(HWND owner, const std::wstring& title, const std::wstring& detail,
+                   const std::wstring& confirmLabel, bool destructive) {
+    ConfirmDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.confirmLabel = confirmLabel.empty() ? std::wstring(L"Confirm") : confirmLabel;
+    state.destructive = destructive;
+    return RunConfirmDialog(owner, state);
+}
+
+void ShowNoticeDialog(HWND owner, const std::wstring& title, const std::wstring& detail, bool error) {
+    ConfirmDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.noticeOnly = true;
+    state.destructive = false;
+    state.errorTone = error;
+    RunConfirmDialog(owner, state);
 }
 
 bool ChooseFolder(HWND owner, const std::wstring& initialPath, std::wstring& selectedPath) {
@@ -528,10 +791,10 @@ bool PromptForInteger(HWND owner, const std::wstring& title, const std::wstring&
     MONITORINFO monitorInfo{sizeof(monitorInfo)};
     if (GetMonitorInfoW(monitor, &monitorInfo)) work = monitorInfo.rcWork;
     else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    const int x = work.left + ((work.right - work.left) - 430) / 2;
-    const int y = work.top + ((work.bottom - work.top) - 220) / 2;
+    const int x = work.left + ((work.right - work.left) - 540) / 2;
+    const int y = work.top + ((work.bottom - work.top) - 260) / 2;
     HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW, kNumericDialogClass, title.c_str(), WS_POPUP,
-                                  x, y, 430, 220, owner, nullptr, GetModuleHandleW(nullptr), &state);
+                                  x, y, 540, 260, owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!dialog) return false;
     EnableWindow(owner, FALSE);
     ShowWindow(dialog, SW_SHOW);
@@ -560,6 +823,55 @@ bool PromptForInteger(HWND owner, const std::wstring& title, const std::wstring&
     EnableWindow(owner, TRUE);
     SetForegroundWindow(owner);
     if (state.accepted) selectedValue = state.result;
+    return state.accepted;
+}
+
+bool PromptForText(HWND owner, const std::wstring& title, const std::wstring& detail,
+                   const std::wstring& initialValue, std::size_t maximumLength,
+                   std::wstring& selectedValue) {
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = NumericDialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kNumericDialogClass;
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    NumericDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.textMode = true;
+    state.maximumLength = (std::max<std::size_t>)(1, (std::min<std::size_t>)(128, maximumLength));
+    state.textResult = initialValue.substr(0, state.maximumLength);
+    RECT work{};
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    if (GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitorInfo)) work = monitorInfo.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    const int x = work.left + ((work.right - work.left) - 540) / 2;
+    const int y = work.top + ((work.bottom - work.top) - 260) / 2;
+    HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW, kNumericDialogClass, title.c_str(), WS_POPUP,
+                                  x, y, 540, 260, owner, nullptr, GetModuleHandleW(nullptr), &state);
+    if (!dialog) return false;
+    EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    while (!state.done && IsWindow(dialog)) {
+        MSG message{};
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status <= 0) {
+            if (status == 0) PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_ESCAPE) {
+            state.done = true; continue;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_RETURN) {
+            SendMessageW(dialog, WM_COMMAND, IDOK, 0); continue;
+        }
+        if (!IsDialogMessageW(dialog, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
+    }
+    if (IsWindow(dialog)) DestroyWindow(dialog);
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
+    if (state.accepted) selectedValue = state.textResult;
     return state.accepted;
 }
 
@@ -1046,4 +1358,10 @@ bool CopyFrameToClipboard(HWND owner, const FrameBuffer& frame) {
     if (!dibOk) GlobalFree(dib);
     if (bitmap && !bitmapOk) DeleteObject(bitmap);
     return v5Ok || dibOk || bitmapOk;
+}
+
+bool IsExclusiveFullscreenAppActive() {
+    QUERY_USER_NOTIFICATION_STATE state{};
+    if (FAILED(SHQueryUserNotificationState(&state))) return false;
+    return state == QUNS_RUNNING_D3D_FULL_SCREEN;
 }

@@ -14,21 +14,25 @@
 #include <iostream>
 #include <memory>
 #include <array>
+#include <cstdint>
 #include <string>
 
 namespace {
 RecordingEventType g_lastType = RecordingEventType::Stats;
 std::wstring g_lastPath;
 std::wstring g_error;
+std::uint64_t g_lastReplaySavedElapsed = UINT64_MAX;
 bool g_sawRecovering = false;
 bool g_sawRecovered = false;
 bool g_captureReady = false;
 bool g_screenshotSaved = false;
 bool g_recorderFrameReady = false;
+bool g_recorderFrameNativeRes = false;
 std::array<int, 8> g_channelReplayStarted{};
 std::array<int, 8> g_channelReplaySaved{};
 std::array<std::wstring, 8> g_channelReplayPaths{};
 std::array<std::wstring, 8> g_channelErrors{};
+std::array<unsigned, 16> g_eventCounts{};
 
 LRESULT CALLBACK SmokeProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_APP_ENGINE_EVENT) {
@@ -38,6 +42,9 @@ LRESULT CALLBACK SmokeProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         if (event && event->type == EngineEventType::RecorderFrame && event->requestId == 777 &&
             event->frame && !event->frame->bgra.empty() && event->frame->virtualRect.right > event->frame->virtualRect.left) {
             g_recorderFrameReady = true;
+            g_recorderFrameNativeRes =
+                event->frame->width == static_cast<UINT>(event->frame->virtualRect.right - event->frame->virtualRect.left) &&
+                event->frame->height == static_cast<UINT>(event->frame->virtualRect.bottom - event->frame->virtualRect.top);
         }
         return 0;
     }
@@ -50,10 +57,13 @@ LRESULT CALLBACK SmokeProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
                 if (event->type == RecordingEventType::ReplaySaved) {
                     ++g_channelReplaySaved[channel];
                     g_channelReplayPaths[channel] = event->path;
+                    g_lastReplaySavedElapsed = event->elapsedMs;
                 }
                 if (event->type == RecordingEventType::Error) g_channelErrors[channel] = event->detail;
             }
             g_lastType = event->type;
+            const auto eventIndex = static_cast<std::size_t>(event->type);
+            if (eventIndex < g_eventCounts.size()) ++g_eventCounts[eventIndex];
             if (!event->path.empty()) g_lastPath = event->path;
             if (event->type == RecordingEventType::Error) g_error = event->detail;
             if (event->type == RecordingEventType::Recovering) g_sawRecovering = true;
@@ -65,6 +75,8 @@ LRESULT CALLBACK SmokeProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
 }
 
 bool PumpUntil(RecordingEventType wanted, DWORD timeoutMs) {
+    const auto wantedIndex = static_cast<std::size_t>(wanted);
+    const unsigned initialCount = wantedIndex < g_eventCounts.size() ? g_eventCounts[wantedIndex] : 0;
     const ULONGLONG deadline = GetTickCount64() + timeoutMs;
     while (GetTickCount64() < deadline) {
         MSG message{};
@@ -73,7 +85,7 @@ bool PumpUntil(RecordingEventType wanted, DWORD timeoutMs) {
             DispatchMessageW(&message);
         }
         if (!g_error.empty()) return false;
-        if (g_lastType == wanted) return true;
+        if (wantedIndex < g_eventCounts.size() && g_eventCounts[wantedIndex] > initialCount) return true;
         Sleep(5);
     }
     return false;
@@ -134,7 +146,7 @@ int wmain(int argumentCount, wchar_t** arguments) {
         AppSettings settings;
         settings.recordSystemAudio = false;
         settings.audioBitrateKbps = 256;  // Regression: this used to disable the encoder.
-        settings.microphoneInputs.push_back({devices.front().id, devices.front().name, 100, true});
+        settings.microphoneInputs.push_back({devices.front().id, devices.front().name, 100, 70, 50, true});
         AudioMixer mixer;
         Microsoft::WRL::ComPtr<IMFSinkWriter> writer;
         std::wstring warning;
@@ -178,7 +190,7 @@ int wmain(int argumentCount, wchar_t** arguments) {
         if (!devices.empty()) {
             AppSettings microphoneSettings;
             microphoneSettings.recordSystemAudio = false;
-            microphoneSettings.microphoneInputs.push_back({devices.front().id, devices.front().name, 100, true});
+            microphoneSettings.microphoneInputs.push_back({devices.front().id, devices.front().name, 100, 70, 50, true});
             AudioMixer mixer;
             std::wstring warning;
             std::wstring startError;
@@ -205,6 +217,7 @@ int wmain(int argumentCount, wchar_t** arguments) {
     const std::wstring output = (std::filesystem::current_path() / L"recording-smoke-output").wstring();
     EnsureDirectoryExists(output);
     AppSettings settings;
+    settings.saveDirectory = output;
     settings.recordingDirectory = output;
     settings.recordingFps = 30;
     settings.recordingBitrateMbps = 4;
@@ -301,6 +314,14 @@ int wmain(int argumentCount, wchar_t** arguments) {
         engine.Stop();
         return 16;
     }
+    // Regression: with recordingHeight=720 the region-editor frame used to come back at the
+    // encoder's downscaled size and was upscaled into a blurry preview/screenshot. A live
+    // (non-recovery) snapshot must match the monitor's native desktop-rect resolution.
+    if (!g_recorderFrameNativeRes && !g_sawRecovering) {
+        std::wcerr << L"Live recorder frame was downscaled to the encoder size instead of native resolution\n";
+        engine.Stop();
+        return 22;
+    }
     engine.NotifyDisplayChange();
     const ULONGLONG reconnectDeadline = GetTickCount64() + 10000;
     while (!g_sawRecovered && GetTickCount64() < reconnectDeadline) {
@@ -308,10 +329,13 @@ int wmain(int argumentCount, wchar_t** arguments) {
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
         Sleep(5);
     }
-    if (!g_sawRecovering || !g_sawRecovered) {
-        std::wcerr << L"Fullscreen reconnect failed\n";
+    if (!g_sawRecovering || (!g_sawRecovered && !engine.IsRecording())) {
+        std::wcerr << L"Fullscreen recovery did not preserve the recording session\n";
         engine.Stop();
         return 8;
+    }
+    if (!g_sawRecovered) {
+        std::wcout << L"DXGI remained unavailable; validating continuous recovery-frame recording\n";
     }
     if (!engine.CaptureScreenshot(settings)) {
         std::wcerr << L"Recorder screenshot queue failed\n";
@@ -336,12 +360,48 @@ int wmain(int argumentCount, wchar_t** arguments) {
         Sleep(5);
     }
     engine.StopActiveSession();
-    if (!PumpUntil(RecordingEventType::RecordingSaved, 20000) || !FileLooksLikeMp4(g_lastPath) || !FileHasAudioStream(g_lastPath)) {
+    if (!PumpUntil(RecordingEventType::RecordingSaved, 20000) || !FileLooksLikeMp4(g_lastPath) ||
+        (!recordingOnly && !FileHasAudioStream(g_lastPath))) {
         std::wcerr << L"Recording finalize failed: " << g_error << L" path=" << g_lastPath << L"\n";
         engine.Stop();
         return 5;
     }
+    if (g_eventCounts[static_cast<std::size_t>(RecordingEventType::RecordingStopped)] == 0) {
+        std::wcerr << L"RecordingStopped was not emitted before RecordingSaved\n";
+        engine.Stop();
+        return 20;
+    }
     std::wcout << L"recording=" << g_lastPath << L"\n";
+
+    // "Prefer CPU" refuses the hardware encoder and resizes on the CPU, so it is a
+    // genuinely different pipeline. Nothing else exercises the software encoder,
+    // and a machine where it fails to open would otherwise only be discovered by
+    // a user whose recording produced nothing.
+    {
+        g_lastType = RecordingEventType::Stats;
+        g_lastPath.clear();
+        g_error.clear();
+        AppSettings cpuSettings = settings;
+        cpuSettings.capturePriority = CapturePriority::Cpu;
+        if (!engine.StartRecording(cpuSettings) || !PumpUntil(RecordingEventType::RecordingStarted, 15000)) {
+            std::wcerr << L"CPU-priority recording start failed: " << g_error << L"\n";
+            engine.Stop();
+            return 23;
+        }
+        const ULONGLONG cpuUntil = GetTickCount64() + 1800;
+        while (GetTickCount64() < cpuUntil) {
+            MSG message{};
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+            Sleep(5);
+        }
+        engine.StopActiveSession();
+        if (!PumpUntil(RecordingEventType::RecordingSaved, 20000) || !FileLooksLikeMp4(g_lastPath)) {
+            std::wcerr << L"CPU-priority recording finalize failed: " << g_error << L" path=" << g_lastPath << L"\n";
+            engine.Stop();
+            return 24;
+        }
+        std::wcout << L"recording-cpu-priority=" << g_lastPath << L"\n";
+    }
 
     g_lastType = RecordingEventType::Stats;
     g_lastPath.clear();
@@ -363,7 +423,30 @@ int wmain(int argumentCount, wchar_t** arguments) {
         engine.Stop();
         return 7;
     }
-    std::wcout << L"replay=" << g_lastPath << L"\n";
+    if (g_lastReplaySavedElapsed != 0) {
+        std::wcerr << L"Replay checkpoint did not reset its visible clock\n";
+        engine.Stop();
+        return 18;
+    }
+    const std::wstring firstReplayPath = g_lastPath;
+    const ULONGLONG secondReplayUntil = GetTickCount64() + 1200;
+    while (GetTickCount64() < secondReplayUntil) {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+        Sleep(5);
+    }
+    g_lastType = RecordingEventType::Stats;
+    g_lastPath.clear();
+    g_error.clear();
+    g_lastReplaySavedElapsed = UINT64_MAX;
+    engine.SaveReplay();
+    if (!PumpUntil(RecordingEventType::ReplaySaved, 20000) || !FileLooksLikeMp4(g_lastPath) ||
+        g_lastPath == firstReplayPath || g_lastReplaySavedElapsed != 0) {
+        std::wcerr << L"Replay writer did not continue from a clean post-save window\n";
+        engine.Stop();
+        return 19;
+    }
+    std::wcout << L"replay-first=" << firstReplayPath << L" replay-after-reset=" << g_lastPath << L"\n";
     engine.StopActiveSession();
     PumpUntil(RecordingEventType::ReplayStopped, 10000);
     engine.Stop();

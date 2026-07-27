@@ -1,0 +1,267 @@
+/* ============================================================================
+   Luna Capture — shared site design system.
+   Every page (index.html, sdk.html, license.html, docs/plugin-sdk.html) links
+   this single stylesheet; page files carry no page-specific <style> blocks.
+   ========================================================================== */
+
+:root{
+  color-scheme:dark;
+  --bg:#0a0c11;--panel:#0d1017;--card:#12161f;--card2:#161c27;
+  --line:#232a36;--line2:#1a2029;
+  --text:#f3f6fc;--muted:#98a1b4;--dim:#6b7488;
+  --accent:#6ea8ff;--accent2:#5b93ec;--accentsoft:#1a2740;
+  --green:#4ecd8b;--yellow:#f4b64c;--red:#f3707e;--violet:#bba7ff;
+  --code:#0a0d14;--radius:14px;
+  --grad-accent:linear-gradient(150deg,#71aaff,#4f83e6);
+  --hero-border:#23324e;
+  --hero-bg:linear-gradient(135deg,#111a2c 0,#0e1420 60%,#101825 100%);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;color:var(--text);
+  background:
+    radial-gradient(1100px 460px at 82% -8%,#12244a 0,transparent 60%),
+    radial-gradient(900px 500px at -5% 8%,#101a30 0,transparent 55%),
+    var(--bg);
+  font:15.5px/1.7 "Segoe UI",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:#9cc3ff}
+code,kbd{font:13px/1.5 "Cascadia Code",Consolas,monospace}
+kbd{padding:2px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:#141a24;color:#d5deee}
+p,li{color:var(--muted)}
+strong{color:var(--text);font-weight:600}
+ul,ol{padding-left:20px}
+li{margin:6px 0}
+li::marker{color:var(--accent2)}
+::selection{background:#2c4a7f;color:#fff}
+
+/* ---- top navigation bar (identical on every page) ----------------------- */
+.sitebar{position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:22px;height:56px;padding:0 22px;border-bottom:1px solid var(--line2);background:rgba(10,12,17,.88);backdrop-filter:blur(14px)}
+.sitebrand{display:flex;align-items:center;gap:9px;font-weight:700;color:var(--text);font-size:14.5px;letter-spacing:-.01em}
+.sitemark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;color:#fff;background:var(--grad-accent);flex:none;box-shadow:0 4px 14px #3f74d955}
+.sitenav{display:flex;gap:2px;margin-right:auto}
+.sitenav a{padding:7px 12px;border-radius:8px;color:var(--muted);font-size:13.5px;font-weight:500}
+.sitenav a:hover{background:#151b26;color:var(--text)}
+.sitenav a.current{background:var(--accentsoft);color:#cfe0ff}
+.siteactions{display:flex;gap:8px}
+.sitebtn{padding:7px 14px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid transparent;display:inline-block}
+.sitebtn.ghost{border-color:var(--line);color:var(--text)}
+.sitebtn.ghost:hover{border-color:var(--accent2);color:#fff}
+.sitebtn.solid{background:var(--grad-accent);color:#0a1220}
+.sitebtn.solid:hover{filter:brightness(1.08)}
+@media(max-width:760px){.sitenav{display:none}}
+
+/* ---- generic content shell ---------------------------------------------- */
+main.page{max-width:1120px;margin:0 auto;padding:56px 32px 120px}
+section{scroll-margin-top:70px;margin:88px 0}
+.sec-tag{display:flex;align-items:center;gap:10px;color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;margin-bottom:10px}
+.sec-tag::before{content:"";width:22px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+h2{margin:0 0 14px;font-size:29px;letter-spacing:-.028em;line-height:1.15}
+h3{margin:32px 0 10px;font-size:18px;letter-spacing:-.01em;color:#e7edf8}
+h4{margin:24px 0 8px;color:#d8e2f3}
+.lead{font-size:16.5px;color:#b8c1d4;max-width:760px}
+.anchor{color:var(--dim);opacity:0;margin-left:8px;font-weight:400;transition:.15s;font-size:16px}
+h2:hover .anchor{opacity:1}
+.hidden{display:none!important}
+
+/* ---- hero ---------------------------------------------------------------- */
+.hero{padding:44px 44px;border:1px solid var(--hero-border);border-radius:24px;background:var(--hero-bg);box-shadow:0 30px 90px #0006}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #2f496f;border-radius:999px;background:#122036;color:#a9c8ff;font-size:12px;font-weight:700;letter-spacing:.08em}
+.hero h1{margin:18px 0 14px;font-size:44px;line-height:1.08;letter-spacing:-.035em;background:linear-gradient(120deg,#fff,#bcd2f6);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* One rule for every hero paragraph, whether or not it carries .lead — otherwise
+   the landing hero (p.lead) and the docs heroes (bare p) drift apart in size. */
+.hero p.lead,.hero>p{margin:0;color:#b4c0d6;font-size:16.5px;line-height:1.65;max-width:820px}
+.hero .formerly{margin-top:10px;color:var(--dim);font-size:13px}
+.hero .meta{margin-top:16px;color:var(--dim);font-size:13px}
+
+/* split hero used on the landing page: copy left, live app preview right */
+.hero.split{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:44px;align-items:center;text-align:left;padding:52px 48px;overflow:hidden}
+.hero.split h1{font-size:46px}
+@media(max-width:1000px){.hero.split{grid-template-columns:1fr}.hero.split .heroart{margin-top:8px}}
+
+.chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:24px}
+.chip{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#0d1220;color:#a7b3c9;font-size:12.5px}
+.chip.ok{border-color:#215541;color:#7fe3bd}
+.chip.blue{border-color:#274a78;color:#9cc3ff}
+
+.cta{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
+.btn{padding:13px 24px;border-radius:12px;font-size:14.5px;font-weight:700;display:inline-flex;align-items:center;gap:8px;border:1px solid transparent}
+.btn.primary{background:var(--grad-accent);color:#0a1220;box-shadow:0 14px 34px #3f74d955}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.secondary{border-color:var(--line);color:var(--text);background:#0f1420}
+.btn.secondary:hover{border-color:var(--accent2);color:#fff}
+
+/* ---- cards & grids ------------------------------------------------------- */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0}
+.grid.two{grid-template-columns:repeat(2,1fr)}
+.card{padding:22px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(160deg,var(--card),#0e121b);transition:transform .18s,border-color .18s,box-shadow .18s}
+.card:hover{transform:translateY(-2px);border-color:#2e3c52;box-shadow:0 14px 34px #0005}
+.card h3{margin:0 0 8px;font-size:16px;color:var(--text);display:flex;align-items:center;gap:9px}
+.card h3 .ico{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(150deg,#25406b,#1a2b47);color:#bcd6ff;font-size:14px;flex:none}
+.card p{margin:0;font-size:13.5px;line-height:1.65}
+.card ul{margin:0;padding-left:18px}
+.card li{margin:5px 0;font-size:13.5px}
+.card.may h3{color:#84e3bb}.card.may{border-color:#215541}
+.card.maynot h3{color:#f6a6b1}.card.maynot{border-color:#4a2530}
+.step{width:30px;height:30px;margin-bottom:14px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(150deg,#25406b,#1a2b47);color:#bcd6ff;font-weight:700}
+
+/* ---- tables -------------------------------------------------------------- */
+table{width:100%;border-collapse:separate;border-spacing:0;margin:16px 0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+th,td{padding:12px 14px;border-bottom:1px solid var(--line2);text-align:left;vertical-align:top;font-size:14px}
+th{background:#141a24;color:#d7dfef;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700}
+td{color:var(--muted)}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:#0f141d}
+td code{color:#a9c6ff;background:#111826;padding:1px 6px;border-radius:5px}
+
+/* ---- code, notes, tags --------------------------------------------------- */
+pre{position:relative;margin:16px 0;padding:18px 20px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,#0b0f18,var(--code));color:#d9e2f5;overflow:auto;tab-size:4;font-size:13px;line-height:1.65}
+pre::-webkit-scrollbar{height:9px}
+pre::-webkit-scrollbar-thumb{background:#1e2634;border-radius:9px}
+.copy{position:absolute;right:10px;top:10px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:#141b26;color:#aeb9cd;cursor:pointer;font:12px "Segoe UI";transition:.15s}
+.copy:hover{border-color:var(--accent2);color:#fff}
+.k{color:#8fb4ff}.s{color:#84dcac}.n{color:#f4c078}.c{color:#69758c;font-style:italic}.p{color:#63c6ff}.fn{color:#c3b6ff}
+
+.note{padding:16px 18px;margin:18px 0;border-left:3px solid var(--accent);border-radius:0 12px 12px 0;background:#0f1826;color:#c3cde0}
+.note strong{display:block;margin-bottom:3px;color:#cfe0ff}
+.note.tip{border-color:var(--green);background:#0e1c17}.note.tip strong{color:#a7f0cf}
+.note.warn{border-color:var(--yellow);background:#1e1a11}.note.warn strong{color:#f6cd86}
+.note.danger{border-color:var(--red);background:#221319}.note.danger strong{color:#f6a6b1}
+
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11.5px;font-weight:600}
+.tag.req{background:#2a1e24;color:#ffabb8;border:1px solid #52323b}
+.tag.opt{background:#1a2230;color:#9fb2cc;border:1px solid #2b3546}
+.tag.rec{background:#122a22;color:#84e3bb;border:1px solid #235141}
+
+/* ---- docs layout (sdk + license): left sidebar, sticky, searchable ------- */
+.layout{display:grid;grid-template-columns:276px minmax(0,1fr);min-height:calc(100vh - 56px)}
+.sidebar{position:sticky;top:56px;height:calc(100vh - 56px);padding:24px 16px;border-right:1px solid var(--line2);background:linear-gradient(180deg,rgba(13,16,23,.96),rgba(10,12,17,.96));overflow:auto}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:#1d2431;border-radius:8px}
+.brand{display:flex;gap:12px;align-items:center;padding:0 8px;margin-bottom:20px}
+.mark{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:20px;color:#fff;background:var(--grad-accent);box-shadow:0 10px 26px #3f74d955}
+.brand strong{display:block;font-size:16px;letter-spacing:-.01em}
+.brand small{display:block;color:var(--dim);font-size:12px}
+.search{width:100%;padding:10px 12px 10px 32px;margin:2px 0 14px;border:1px solid var(--line);border-radius:11px;background:#0a0e15 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b7488' stroke-width='2'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='M11 11l4 4'/%3E%3C/svg%3E") 10px 50% no-repeat;color:var(--text);outline:none;font-size:13px}
+.search:focus{border-color:var(--accent2);box-shadow:0 0 0 3px #5b93ec22}
+.sidebar nav a{display:block;padding:6px 11px;border-radius:9px;color:var(--muted);font-size:13.5px;position:relative}
+.sidebar nav a:hover{background:#151b26;color:var(--text)}
+.sidebar nav a.active{background:var(--accentsoft);color:#cfe0ff}
+.sidebar nav a.active::before{content:"";position:absolute;left:-16px;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--accent)}
+.sidebar nav .group{margin:18px 11px 6px;color:var(--dim);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.navfoot{margin-top:22px;padding:12px 11px 0;border-top:1px solid var(--line2);color:var(--dim);font-size:12px}
+.layout main{width:min(1040px,100%);padding:44px 60px 120px}
+.layout .hero{padding:40px 40px 34px;border-radius:22px}
+.layout .hero h1{font-size:38px}
+.layout section{scroll-margin-top:78px;margin:62px 0}
+
+/* ---- footer -------------------------------------------------------------- */
+.footer{margin-top:90px;padding:30px 0 0;border-top:1px solid var(--line2);color:var(--dim);font-size:13px;line-height:1.8;display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.footer nav{display:flex;gap:18px}
+/* docs pages use a prose footer, not the two-column landing footer */
+.layout .footer{display:block;margin-top:80px;padding-top:26px}
+
+/* ============================================================================
+   Landing-page app previews — the real UI redrawn in CSS, so the site shows
+   the product without shipping screenshots (fully offline, no images).
+   ========================================================================== */
+.heroart{position:relative;filter:drop-shadow(0 34px 60px #000a)}
+.appwin{border:1px solid #262e3d;border-radius:16px;background:#0e1116;overflow:hidden;font-size:11px;line-height:1.45}
+.appwin .titlebar{display:flex;align-items:center;height:34px;padding:0 12px;background:#0b0e13;border-bottom:1px solid #1a2029}
+.appwin .titlebar .t-title{color:#aeb6c6;font-size:11px;font-weight:600;display:flex;align-items:center;gap:7px}
+.appwin .titlebar .t-title .sitemark{width:16px;height:16px;border-radius:5px;font-size:9px;box-shadow:none}
+.appwin .titlebar .t-controls{margin-left:auto;display:flex;gap:6px;color:#5b6373;font-size:10px}
+.appwin .titlebar .t-controls span{width:22px;height:20px;display:grid;place-items:center;border-radius:6px}
+.appwin .titlebar .t-controls span:hover{background:#1a212c}
+.appbody{display:grid;grid-template-columns:118px 1fr;min-height:302px}
+.appside{padding:10px 8px;background:#0b0e13;border-right:1px solid #1a2029;display:flex;flex-direction:column;gap:2px}
+.appside .navitem{display:flex;align-items:center;gap:7px;padding:5.5px 9px;border-radius:8px;color:#8c94a6;font-size:10.5px;font-weight:500}
+.appside .navitem .dot{width:5px;height:5px;border-radius:2px;background:#39424f;flex:none}
+.appside .navitem.on{background:linear-gradient(150deg,#3e6ed0,#3157ab);color:#fff}
+.appside .navitem.on .dot{background:#bcd6ff}
+.appside .navver{margin-top:auto;padding:8px 9px 2px;color:#525b6b;font-size:9px}
+.appmain{padding:14px 16px}
+.appmain .headline{color:#f0f3f9;font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.appmain .subline{color:#79839a;font-size:10px;margin-top:2px}
+.appstatus{display:flex;align-items:center;gap:8px;margin-top:11px;padding:9px 11px;border:1px solid #262d39;border-radius:10px;background:#12151d}
+.appstatus .led{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px #4ecd8b88;flex:none}
+.appstatus .s-title{color:#e6eaf2;font-size:10.5px;font-weight:600}
+.appstatus .s-sub{color:#6f7990;font-size:9px}
+.appcards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:11px}
+.appcard{padding:9px 9px 8px;border:1px solid #262d39;border-radius:10px;background:#12151d}
+.appcard .badge{width:19px;height:19px;border-radius:6px;background:linear-gradient(150deg,#6c96f6,#466ed6);display:grid;place-items:center;color:#fff;font-size:9.5px;margin-bottom:6px}
+.appcard .c-title{color:#e6eaf2;font-size:9.8px;font-weight:600}
+.appcard .c-sub{color:#67718a;font-size:8.2px;margin-top:1px;line-height:1.35}
+.appcard .c-key{color:#71a9ff;font-size:8.2px;margin-top:6px}
+.applatest{display:flex;align-items:center;gap:9px;margin-top:11px;padding:9px 11px;border:1px solid #262d39;border-radius:10px;background:#12151d}
+.applatest .l-title{color:#e6eaf2;font-size:10px;font-weight:600}
+.applatest .l-sub{color:#6f7990;font-size:8.6px}
+.applatest .l-ms{margin-left:auto;color:#71a9ff;font-size:9px}
+
+/* floating toast mockup — matches the in-app overlay (status accent + glyph) */
+.toastmock{position:absolute;right:-14px;bottom:-18px;width:238px;display:flex;align-items:center;gap:9px;padding:10px 12px 10px 14px;border:1px solid #29313f;border-radius:13px;background:#14171e;box-shadow:0 18px 44px #000b}
+.toastmock::before{content:"";position:absolute;left:6px;top:13px;bottom:13px;width:3px;border-radius:2px;background:var(--green)}
+.toastmock .glyph{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#15251e;color:var(--green);font-size:12px;flex:none}
+.toastmock .tm-title{color:#f0f3f9;font-size:10.5px;font-weight:600}
+.toastmock .tm-sub{color:#79839a;font-size:9px}
+.toastmock .tm-ms{margin-left:auto;color:#71a9ff;font-size:9px;align-self:flex-start}
+.toastmock.warn::before{background:var(--yellow)}
+.toastmock.warn .glyph{background:#2a2314;color:var(--yellow)}
+
+/* preview gallery on the landing page */
+.previews{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:26px}
+.preview{border:1px solid var(--line);border-radius:16px;background:linear-gradient(160deg,var(--card),#0e121b);overflow:hidden}
+.preview .p-art{position:relative;padding:22px 22px 0;min-height:210px}
+.preview .p-caption{padding:14px 20px 18px;border-top:1px solid var(--line2)}
+.preview .p-caption b{display:block;color:var(--text);font-size:14px;margin-bottom:2px}
+.preview .p-caption span{color:var(--dim);font-size:12.5px;line-height:1.5}
+@media(max-width:900px){.previews{grid-template-columns:1fr}}
+
+/* region editor mockup */
+.regionmock{position:relative;height:186px;border-radius:12px 12px 0 0;background:linear-gradient(135deg,#1c2333,#141a26 55%,#182030);border:1px solid #262e3d;border-bottom:0;overflow:hidden}
+.regionmock .dim{position:absolute;inset:0;background:#060810cc}
+.regionmock .sel{position:absolute;left:20%;top:22%;width:46%;height:44%;border:1.5px solid #7ab0ff;background:linear-gradient(135deg,#31415e,#26344c);box-shadow:0 0 0 9999px #060810cc}
+.regionmock .sel i{position:absolute;width:7px;height:7px;background:#7ab0ff;border-radius:2px}
+.regionmock .sel i:nth-child(1){left:-4px;top:-4px}
+.regionmock .sel i:nth-child(2){right:-4px;top:-4px}
+.regionmock .sel i:nth-child(3){left:-4px;bottom:-4px}
+.regionmock .sel i:nth-child(4){right:-4px;bottom:-4px}
+.regionmock .size{position:absolute;left:20%;top:calc(22% - 22px);padding:2px 8px;border-radius:6px;background:#141b28;border:1px solid #2b3546;color:#9cc3ff;font-size:9.5px}
+.regionmock .rtools{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:4px;padding:6px 8px;border:1px solid #3a4152;border-radius:11px;background:#141720ee;box-shadow:0 10px 26px #0009}
+.regionmock .rtools span{width:22px;height:22px;display:grid;place-items:center;border-radius:7px;color:#aab4c8;font-size:10.5px}
+.regionmock .rtools span.on{background:#3e6ed0;color:#fff}
+.regionmock .rtools span.ok{color:#7fe3bd}
+
+/* replay / recording mockup */
+.replaymock{height:186px;border-radius:12px 12px 0 0;border:1px solid #262e3d;border-bottom:0;background:#0e1116;padding:14px 16px;overflow:hidden}
+.replaymock .r-tile{position:relative;height:96px;border-radius:10px;background:linear-gradient(135deg,#233046,#182238 60%,#1b2c45);border:1px solid #2b3546;overflow:hidden}
+.replaymock .r-tile .rec{position:absolute;left:10px;top:9px;display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;background:#0d1017cc;color:#ff8f9c;font-size:9px;font-weight:700}
+.replaymock .r-tile .rec i{width:6px;height:6px;border-radius:50%;background:#f3707e;animation:blink 1.2s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+.replaymock .r-tile .stamp{position:absolute;right:10px;bottom:8px;padding:2px 7px;border-radius:6px;background:#0d1017cc;color:#9cc3ff;font-size:9px}
+.replaymock .r-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}
+.replaymock .r-stat{padding:7px 9px;border:1px solid #262d39;border-radius:9px;background:#12151d}
+.replaymock .r-stat b{display:block;color:#e6eaf2;font-size:10.5px}
+.replaymock .r-stat span{color:#67718a;font-size:8.4px}
+
+/* responsive tweaks shared by every page */
+@media(max-width:920px){
+  .layout{display:block}
+  .sidebar{position:relative;width:100%;height:auto;border-right:0;border-bottom:1px solid var(--line2)}
+  .sidebar nav{columns:2;column-gap:10px}
+  .sidebar nav .group{break-after:avoid}
+  .layout main{width:100%;padding:28px 20px 90px}
+  .grid,.grid.two{grid-template-columns:1fr}
+  .layout .hero{padding:26px}
+  .layout .hero h1{font-size:30px}
+}
+@media(max-width:760px){
+  main.page{padding:40px 18px 90px}
+  .hero,.hero.split{padding:30px 22px}
+  .hero h1,.hero.split h1{font-size:34px}
+  .appcards{grid-template-columns:repeat(2,1fr)}
+  .toastmock{position:static;margin-top:12px;width:100%}
+}

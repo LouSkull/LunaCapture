@@ -4,6 +4,7 @@
 #include "UiIcons.hpp"
 #include "WinUtil.hpp"
 
+#include <dwmapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -36,6 +37,22 @@ bool PointInside(const RECT& rect, POINT point) {
     return point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
 }
 
+// Squared distance from `point` to the segment a-b, in pixels. Squared so the
+// hit tests below never need a sqrt.
+double DistanceSquaredToSegment(POINT point, POINT a, POINT b) {
+    const double dx = static_cast<double>(b.x - a.x);
+    const double dy = static_cast<double>(b.y - a.y);
+    const double lengthSquared = dx * dx + dy * dy;
+    double t = 0.0;
+    if (lengthSquared > 0.0) {
+        t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared;
+        t = (std::clamp)(t, 0.0, 1.0);
+    }
+    const double px = a.x + t * dx - point.x;
+    const double py = a.y + t * dy - point.y;
+    return px * px + py * py;
+}
+
 void BlendSolid(HDC destination, const RECT& rect, COLORREF color, BYTE alpha) {
     HDC source = CreateCompatibleDC(destination);
     HBITMAP bitmap = CreateCompatibleBitmap(destination, 1, 1);
@@ -50,19 +67,44 @@ void BlendSolid(HDC destination, const RECT& rect, COLORREF color, BYTE alpha) {
 }
 
 void DrawTextCentered(HDC dc, const wchar_t* text, const RECT& rect, COLORREF color, HFONT font) {
+    const std::wstring translated = ui::TranslateText(text ? text : L"");
     const HGDIOBJ oldFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, color);
-    DrawTextW(dc, text, -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SetTextColor(dc, ui::ResolveThemeColor(color));
+    DrawTextW(dc, translated.c_str(), -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(dc, oldFont);
 }
 
 void DrawTextLeft(HDC dc, const wchar_t* text, const RECT& rect, COLORREF color, HFONT font) {
+    const std::wstring translated = ui::TranslateText(text ? text : L"");
     const HGDIOBJ oldFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, color);
-    DrawTextW(dc, text, -1, const_cast<RECT*>(&rect), DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SetTextColor(dc, ui::ResolveThemeColor(color));
+    DrawTextW(dc, translated.c_str(), -1, const_cast<RECT*>(&rect), DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(dc, oldFont);
+}
+
+void PaintEditorChromeBackdrop(HDC dc, const RECT& rect, int radius) {
+    if (!dc || IsRectEmpty(&rect)) return;
+    const int saved = SaveDC(dc);
+    if (!saved) return;
+
+    const int rectWidth = static_cast<int>(rect.right - rect.left);
+    const int rectHeight = static_cast<int>(rect.bottom - rect.top);
+    const int resolvedRadius = (std::min)(ui::ResolveThemeRadius(radius),
+                                          (std::min)(rectWidth, rectHeight) / 2);
+    HRGN clip = resolvedRadius > 0
+        ? CreateRoundRectRgn(rect.left, rect.top, rect.right + 1, rect.bottom + 1,
+                             resolvedRadius * 2, resolvedRadius * 2)
+        : CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
+    if (clip) {
+        const int clipResult = ExtSelectClipRgn(dc, clip, RGN_AND);
+        DeleteObject(clip);
+        if (clipResult != ERROR) {
+            ui::PaintThemeBackdrop(dc, rect, ui::ThemeSurface::EditorChrome, GetTickCount64());
+        }
+    }
+    RestoreDC(dc, saved);
 }
 
 void RgbToHsv(COLORREF c, float& h, float& s, float& v) {
@@ -119,19 +161,33 @@ bool RegionEditor::Create(HINSTANCE instance, HWND notifyWindow) {
     wc.lpszClassName = kRegionClassName;
     wc.hbrBackground = nullptr;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
-    toolbarFont_ = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                               DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    hintFont_ = CreateFontW(-23, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    sizeFont_ = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    if (!toolbarFont_ || !hintFont_ || !sizeFont_) {
+    if (!RecreateFonts()) {
         Destroy();
         return false;
     }
+    return true;
+}
+
+bool RegionEditor::RecreateFonts() {
+    HFONT toolbar = ui::CreateThemeFont(14, FW_SEMIBOLD);
+    HFONT hint = ui::CreateThemeFont(23, FW_SEMIBOLD);
+    HFONT size = ui::CreateThemeFont(14, FW_NORMAL);
+    if (!toolbar || !hint || !size) {
+        if (toolbar) DeleteObject(toolbar);
+        if (hint) DeleteObject(hint);
+        if (size) DeleteObject(size);
+        return false;
+    }
+
+    HFONT oldToolbar = toolbarFont_;
+    HFONT oldHint = hintFont_;
+    HFONT oldSize = sizeFont_;
+    toolbarFont_ = toolbar;
+    hintFont_ = hint;
+    sizeFont_ = size;
+    if (oldToolbar) DeleteObject(oldToolbar);
+    if (oldHint) DeleteObject(oldHint);
+    if (oldSize) DeleteObject(oldSize);
     return true;
 }
 
@@ -166,6 +222,11 @@ bool RegionEditor::Show(std::shared_ptr<FrameBuffer> frame, SessionMode mode, co
     pressedToolbar_ = ToolbarAction::None;
     draggingSelection_ = false;
     drawingAnnotation_ = false;
+    activeGrip_ = Grip::None;
+    hoveredGrip_ = Grip::None;
+    gripStartAnnotations_.clear();
+    hoveredAnnotation_ = -1;
+    movingAnnotation_ = -1;
     hoveredWindow_ = nullptr;
     hoveredWindowRect_ = {};
     windowChoicePending_ = false;
@@ -179,6 +240,11 @@ bool RegionEditor::Show(std::shared_ptr<FrameBuffer> frame, SessionMode mode, co
                                 static_cast<int>(frame_->width), static_cast<int>(frame_->height),
                                 nullptr, nullptr, instance_, this);
         if (!hwnd_) return false;
+        // The editor displays a frozen desktop. Excluding this top-level window prevents a later
+        // DXGI/GDI snapshot from recursively capturing that frozen frame and duplicating it.
+        if (!SetWindowDisplayAffinity(hwnd_, WDA_EXCLUDEFROMCAPTURE)) {
+            AppendDiagnosticLog(L"Region editor capture exclusion unavailable: " + std::to_wstring(GetLastError()));
+        }
     }
     SetWindowPos(hwnd_, HWND_TOPMOST, frame_->virtualRect.left, frame_->virtualRect.top,
                  static_cast<int>(frame_->width), static_cast<int>(frame_->height), SWP_SHOWWINDOW);
@@ -200,6 +266,13 @@ void RegionEditor::Cancel() {
     Complete(RegionResultAction::Cancel);
 }
 
+void RegionEditor::RefreshTheme() {
+    RecreateFonts();
+    if (hwnd_ && IsWindowVisible(hwnd_)) {
+        RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
+}
+
 RECT RegionEditor::NormalizedSelection() const {
     RECT rect = selection_;
     if (draggingSelection_) rect = NormalizeRectPoints(dragStart_, dragCurrent_);
@@ -214,8 +287,9 @@ bool RegionEditor::HasSelection() const {
 std::vector<RegionEditor::ToolbarItem> RegionEditor::ToolbarItems() const {
     const bool drawingTool = tool_ == Tool::Arrow || tool_ == Tool::Rectangle || tool_ == Tool::Pen || tool_ == Tool::Highlighter;
     std::vector<ToolbarItem> items = {
-        {ToolbarAction::Select, 38},      {ToolbarAction::Arrow, 38}, {ToolbarAction::Rectangle, 38},
-        {ToolbarAction::Pen, 38},         {ToolbarAction::Highlighter, 38}, {ToolbarAction::Eraser, 38},
+        {ToolbarAction::Select, 38},      {ToolbarAction::Move, 38},  {ToolbarAction::Arrow, 38},
+        {ToolbarAction::Rectangle, 38},   {ToolbarAction::Pen, 38},   {ToolbarAction::Highlighter, 38},
+        {ToolbarAction::Eraser, 38},
         {ToolbarAction::Undo, 34},        {ToolbarAction::Redo, 34},
     };
     if (drawingTool) items.push_back({ToolbarAction::Color, 46});
@@ -266,6 +340,12 @@ RECT RegionEditor::ToolbarItemRect(ToolbarAction action) const {
 
 void RegionEditor::SetTool(Tool tool) {
     tool_ = tool;
+    if (tool_ != Tool::Move) {
+        activeGrip_ = Grip::None;
+        hoveredGrip_ = Grip::None;
+        hoveredAnnotation_ = -1;
+        movingAnnotation_ = -1;
+    }
     const bool drawingTool = tool_ == Tool::Arrow || tool_ == Tool::Rectangle || tool_ == Tool::Pen || tool_ == Tool::Highlighter;
     if (paletteOpen_ && !drawingTool) ClosePalette();
     if (HasSelection()) UpdateToolbarRect();
@@ -295,13 +375,183 @@ void RegionEditor::UpdateHoveredWindow(POINT clientPoint) {
                               bounds.right - frame_->virtualRect.left, bounds.bottom - frame_->virtualRect.top};
 }
 
+RECT RegionEditor::PrimaryMonitorClientRect() const {
+    const RECT client{0, 0, frame_ ? static_cast<LONG>(frame_->width) : 0,
+                      frame_ ? static_cast<LONG>(frame_->height) : 0};
+    if (!frame_) return client;
+    MONITORINFO info{sizeof(info)};
+    HMONITOR primary = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    if (!primary || !GetMonitorInfoW(primary, &info)) return client;
+    const RECT mapped{info.rcMonitor.left - frame_->virtualRect.left,
+                      info.rcMonitor.top - frame_->virtualRect.top,
+                      info.rcMonitor.right - frame_->virtualRect.left,
+                      info.rcMonitor.bottom - frame_->virtualRect.top};
+    RECT clipped{};
+    if (!IntersectRect(&clipped, &mapped, &client) || IsRectEmpty(&clipped)) return client;
+    return clipped;
+}
+
+// Grip bands are measured inward from the edge so a thin selection stays grabbable:
+// with an outward band the corners of a 10px-tall region would overlap each other.
+RegionEditor::Grip RegionEditor::GripAt(POINT point) const {
+    if (tool_ != Tool::Move || !HasSelection()) return Grip::None;
+    const RECT selection = NormalizedSelection();
+    constexpr int kBand = 10;
+    RECT outer = selection;
+    InflateRect(&outer, kBand, kBand);
+    if (!PointInside(outer, point)) return Grip::None;
+
+    const int width = selection.right - selection.left;
+    const int height = selection.bottom - selection.top;
+    const int bandX = (std::min)(kBand, (std::max)(2, width / 3));
+    const int bandY = (std::min)(kBand, (std::max)(2, height / 3));
+    const bool left = point.x <= selection.left + bandX;
+    const bool right = point.x >= selection.right - bandX;
+    const bool top = point.y <= selection.top + bandY;
+    const bool bottom = point.y >= selection.bottom - bandY;
+
+    if (left && top) return Grip::TopLeft;
+    if (right && top) return Grip::TopRight;
+    if (left && bottom) return Grip::BottomLeft;
+    if (right && bottom) return Grip::BottomRight;
+    if (left) return Grip::Left;
+    if (right) return Grip::Right;
+    if (top) return Grip::Top;
+    if (bottom) return Grip::Bottom;
+    return PointInside(selection, point) ? Grip::Body : Grip::None;
+}
+
+int RegionEditor::AnnotationAt(POINT point) const {
+    if (tool_ != Tool::Move) return -1;
+    // Newest first: the annotation drawn last is the one on top.
+    for (int index = static_cast<int>(annotations_.size()) - 1; index >= 0; --index) {
+        const Annotation& annotation = annotations_[static_cast<std::size_t>(index)];
+        const double tolerance = annotation.tool == Tool::Highlighter ? 13.0 : 9.0;
+        const double limit = tolerance * tolerance;
+        switch (annotation.tool) {
+            case Tool::Arrow:
+                if (DistanceSquaredToSegment(point, annotation.start, annotation.end) <= limit) return index;
+                break;
+            case Tool::Rectangle: {
+                // Border only. Grabbing the hollow middle of a large rectangle has
+                // to keep moving the selection, or one big box would swallow the
+                // whole canvas.
+                const RECT bounds = NormalizeRectPoints(annotation.start, annotation.end);
+                const POINT corners[4] = {{bounds.left, bounds.top}, {bounds.right, bounds.top},
+                                          {bounds.right, bounds.bottom}, {bounds.left, bounds.bottom}};
+                for (int edge = 0; edge < 4; ++edge) {
+                    if (DistanceSquaredToSegment(point, corners[edge], corners[(edge + 1) % 4]) <= limit) return index;
+                }
+                break;
+            }
+            case Tool::Pen:
+            case Tool::Highlighter: {
+                if (annotation.points.size() < 2) {
+                    if (!annotation.points.empty() &&
+                        DistanceSquaredToSegment(point, annotation.points.front(), annotation.points.front()) <= limit) {
+                        return index;
+                    }
+                    break;
+                }
+                for (std::size_t i = 1; i < annotation.points.size(); ++i) {
+                    if (DistanceSquaredToSegment(point, annotation.points[i - 1], annotation.points[i]) <= limit) {
+                        return index;
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return -1;
+}
+
+void RegionEditor::OffsetAnnotation(Annotation& annotation, int dx, int dy) {
+    annotation.start.x += dx;
+    annotation.start.y += dy;
+    annotation.end.x += dx;
+    annotation.end.y += dy;
+    for (POINT& point : annotation.points) {
+        point.x += dx;
+        point.y += dy;
+    }
+}
+
+void RegionEditor::ApplyAnnotationDrag(POINT point) {
+    if (movingAnnotation_ < 0 || movingAnnotation_ >= static_cast<int>(annotations_.size())) return;
+    Annotation moved = annotationDragOrigin_;
+    OffsetAnnotation(moved, point.x - annotationDragStart_.x, point.y - annotationDragStart_.y);
+    annotations_[static_cast<std::size_t>(movingAnnotation_)] = std::move(moved);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void RegionEditor::ApplyGripDrag(POINT point) {
+    if (activeGrip_ == Grip::None || !frame_) return;
+    const int frameWidth = static_cast<int>(frame_->width);
+    const int frameHeight = static_cast<int>(frame_->height);
+    const int dx = point.x - gripDragStart_.x;
+    const int dy = point.y - gripDragStart_.y;
+    RECT next = gripStartSelection_;
+
+    if (activeGrip_ == Grip::Body) {
+        // Moving keeps the size and slides the whole region, stopped by the desktop edge.
+        const int width = next.right - next.left;
+        const int height = next.bottom - next.top;
+        next.left = (std::clamp)(next.left + dx, 0L, static_cast<LONG>(frameWidth - width));
+        next.top = (std::clamp)(next.top + dy, 0L, static_cast<LONG>(frameHeight - height));
+        next.right = next.left + width;
+        next.bottom = next.top + height;
+        // Annotations belong to the region, so they travel with it. The delta is
+        // taken from the clamped result, not the raw cursor movement, so nothing
+        // slides out from under the selection once it hits the desktop edge.
+        const int appliedDx = static_cast<int>(next.left - gripStartSelection_.left);
+        const int appliedDy = static_cast<int>(next.top - gripStartSelection_.top);
+        annotations_ = gripStartAnnotations_;
+        for (Annotation& annotation : annotations_) OffsetAnnotation(annotation, appliedDx, appliedDy);
+    } else {
+        constexpr int kMinimum = 8;
+        const bool west = activeGrip_ == Grip::Left || activeGrip_ == Grip::TopLeft || activeGrip_ == Grip::BottomLeft;
+        const bool east = activeGrip_ == Grip::Right || activeGrip_ == Grip::TopRight || activeGrip_ == Grip::BottomRight;
+        const bool north = activeGrip_ == Grip::Top || activeGrip_ == Grip::TopLeft || activeGrip_ == Grip::TopRight;
+        const bool south = activeGrip_ == Grip::Bottom || activeGrip_ == Grip::BottomLeft || activeGrip_ == Grip::BottomRight;
+        if (west) next.left = (std::clamp)(next.left + dx, 0L, next.right - kMinimum);
+        if (east) next.right = (std::clamp)(next.right + dx, next.left + kMinimum, static_cast<LONG>(frameWidth));
+        if (north) next.top = (std::clamp)(next.top + dy, 0L, next.bottom - kMinimum);
+        if (south) next.bottom = (std::clamp)(next.bottom + dy, next.top + kMinimum, static_cast<LONG>(frameHeight));
+    }
+
+    selection_ = next;
+    UpdateToolbarRect();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void RegionEditor::DrawSelectionGrips(HDC dc, const RECT& selection) const {
+    constexpr int kHandle = 4;
+    const int midX = (selection.left + selection.right) / 2;
+    const int midY = (selection.top + selection.bottom) / 2;
+    const struct { int x; int y; Grip grip; } handles[] = {
+        {selection.left, selection.top, Grip::TopLeft},       {midX, selection.top, Grip::Top},
+        {selection.right, selection.top, Grip::TopRight},     {selection.right, midY, Grip::Right},
+        {selection.right, selection.bottom, Grip::BottomRight}, {midX, selection.bottom, Grip::Bottom},
+        {selection.left, selection.bottom, Grip::BottomLeft}, {selection.left, midY, Grip::Left},
+    };
+    for (const auto& handle : handles) {
+        const bool hot = hoveredGrip_ == handle.grip || activeGrip_ == handle.grip;
+        const RECT box{handle.x - kHandle, handle.y - kHandle, handle.x + kHandle + 1, handle.y + kHandle + 1};
+        ui::FillRoundRect(dc, box, 3, hot ? RGB(150, 205, 255) : RGB(240, 246, 255));
+        ui::StrokeRoundRect(dc, box, 3, RGB(30, 78, 148), 1);
+    }
+}
+
 RECT RegionEditor::WindowChoicePanel() const {
     const int width = 650;
     const int height = 116;
-    const int frameWidth = frame_ ? static_cast<int>(frame_->width) : width;
-    const int frameHeight = frame_ ? static_cast<int>(frame_->height) : height;
-    const int left = (frameWidth - width) / 2;
-    const int top = (std::max)(24, frameHeight - height - 48);
+    // Anchored to the primary monitor, not the virtual desktop, so the prompt is
+    // never split down the middle by a monitor seam.
+    const RECT host = PrimaryMonitorClientRect();
+    const int left = host.left + ((host.right - host.left) - width) / 2;
+    const int top = (std::max<int>)(host.top + 24, host.bottom - height - 48);
     return RECT{left, top, left + width, top + height};
 }
 
@@ -325,6 +575,8 @@ void RegionEditor::Undo() {
     if (annotations_.empty()) return;
     redoAnnotations_.push_back(std::move(annotations_.back()));
     annotations_.pop_back();
+    // The hover index refers to a list that just changed under it.
+    hoveredAnnotation_ = -1;
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -332,6 +584,7 @@ void RegionEditor::Redo() {
     if (redoAnnotations_.empty()) return;
     annotations_.push_back(std::move(redoAnnotations_.back()));
     redoAnnotations_.pop_back();
+    hoveredAnnotation_ = -1;
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -367,6 +620,7 @@ void RegionEditor::EraseAt(POINT point) {
 void RegionEditor::ExecuteToolbar(ToolbarAction action) {
     switch (action) {
         case ToolbarAction::Select: SetTool(Tool::Select); break;
+        case ToolbarAction::Move: SetTool(Tool::Move); break;
         case ToolbarAction::Arrow: SetTool(Tool::Arrow); break;
         case ToolbarAction::Rectangle: SetTool(Tool::Rectangle); break;
         case ToolbarAction::Pen: SetTool(Tool::Pen); break;
@@ -401,6 +655,8 @@ void RegionEditor::Complete(RegionResultAction action) {
     if (!visible_) return;
     ReleaseCapture();
     ShowWindow(hwnd_, SW_HIDE);
+    // Make the hide visible to DWM before hotkeys are re-enabled by the completion event.
+    DwmFlush();
     visible_ = false;
     paletteOpen_ = false;
     windowChoicePending_ = false;
@@ -432,7 +688,7 @@ void RegionEditor::DrawAnnotation(HDC dc, const Annotation& annotation, POINT of
     auto tx = [offset](POINT p) { return Gdiplus::PointF(static_cast<float>(p.x + offset.x), static_cast<float>(p.y + offset.y)); };
     const float width = annotation.tool == Tool::Highlighter ? 15.0f : (annotation.tool == Tool::Pen ? 3.2f : 2.6f);
     const BYTE alpha = annotation.tool == Tool::Highlighter ? annotation.alpha : 255;
-    const Gdiplus::Color color = ui::FromColorRef(annotation.color, alpha);
+    const Gdiplus::Color color = ui::FromColorRefRaw(annotation.color, alpha);
 
     Gdiplus::Pen pen(color, width);
     pen.SetStartCap(Gdiplus::LineCapRound);
@@ -524,6 +780,7 @@ FrameBuffer RegionEditor::RenderCrop() const {
 
 void RegionEditor::DrawToolbar(HDC dc, const RECT&) {
     ui::FillRoundRect(dc, toolbarRect_, 14, RGB(20, 23, 29), 246);
+    PaintEditorChromeBackdrop(dc, toolbarRect_, 14);
     ui::StrokeRoundRect(dc, toolbarRect_, 14, RGB(66, 72, 86));
 
     const auto items = ToolbarItems();
@@ -538,6 +795,7 @@ void RegionEditor::DrawToolbar(HDC dc, const RECT&) {
         first = false;
 
         const bool selected = (action == ToolbarAction::Select && tool_ == Tool::Select) ||
+                              (action == ToolbarAction::Move && tool_ == Tool::Move) ||
                               (action == ToolbarAction::Arrow && tool_ == Tool::Arrow) ||
                               (action == ToolbarAction::Rectangle && tool_ == Tool::Rectangle) ||
                               (action == ToolbarAction::Pen && tool_ == Tool::Pen) ||
@@ -555,7 +813,7 @@ void RegionEditor::DrawToolbar(HDC dc, const RECT&) {
 
         if (action == ToolbarAction::Color) {
             RECT swatch{rect.left + 7, rect.top + 7, rect.right - 7, rect.bottom - 7};
-            ui::FillRoundRect(dc, swatch, 6, currentColor_);
+            { ui::ScopedThemeBypass bypass; ui::FillRoundRect(dc, swatch, 6, currentColor_); }
             ui::StrokeRoundRect(dc, swatch, 6, selected ? RGB(255, 255, 255) : RGB(90, 96, 110), selected ? 2 : 1);
             continue;
         }
@@ -564,6 +822,7 @@ void RegionEditor::DrawToolbar(HDC dc, const RECT&) {
         const wchar_t* label = nullptr;
         switch (action) {
             case ToolbarAction::Select: icon = UiIcon::Region; break;
+            case ToolbarAction::Move: icon = UiIcon::Move; break;
             case ToolbarAction::Arrow: icon = UiIcon::Arrow; break;
             case ToolbarAction::Rectangle: icon = UiIcon::Rectangle; break;
             case ToolbarAction::Pen: icon = UiIcon::Pen; break;
@@ -642,15 +901,16 @@ void RegionEditor::DrawPalette(HDC dc) {
     InflateRect(&shadow, 3, 3);
     ui::FillRoundRect(dc, shadow, 18, RGB(0, 0, 0), 60);
     ui::FillRoundRect(dc, paletteRect_, 16, RGB(24, 27, 34));
+    PaintEditorChromeBackdrop(dc, paletteRect_, 16);
     ui::StrokeRoundRect(dc, paletteRect_, 16, RGB(70, 76, 90));
 
     DrawTextLeft(dc, L"Color", RECT{paletteRect_.left + 14, paletteRect_.top + 10, paletteRect_.left + 120, paletteRect_.top + 32},
                  RGB(232, 236, 244), toolbarFont_);
     RECT preview{paletteRect_.right - 44, paletteRect_.top + 11, paletteRect_.right - 14, paletteRect_.top + 30};
-    ui::FillRoundRect(dc, preview, 6, currentColor_);
+    { ui::ScopedThemeBypass bypass; ui::FillRoundRect(dc, preview, 6, currentColor_); }
     ui::StrokeRoundRect(dc, preview, 6, RGB(90, 96, 110));
 
-    const Gdiplus::Color hueColor = ui::FromColorRef(HsvToRgb(hsvH_, 1.0f, 1.0f));
+    const Gdiplus::Color hueColor = ui::FromColorRefRaw(HsvToRgb(hsvH_, 1.0f, 1.0f));
     {
         ui::Canvas canvas(dc);
         if (canvas.ok()) {
@@ -723,7 +983,7 @@ void RegionEditor::DrawPalette(HDC dc) {
     for (int i = 0; i < kSwatchCount; ++i) {
         const int cl = paletteSwatchRect_.left + static_cast<int>(i * (cellW + cellGap));
         RECT cell{cl, paletteSwatchRect_.top, cl + static_cast<int>(cellW), paletteSwatchRect_.bottom};
-        ui::FillRoundRect(dc, cell, 5, kSwatches[i]);
+        { ui::ScopedThemeBypass bypass; ui::FillRoundRect(dc, cell, 5, kSwatches[i]); }
         if (kSwatches[i] == currentColor_) ui::StrokeRoundRect(dc, cell, 5, RGB(255, 255, 255), 2);
         else ui::StrokeRoundRect(dc, cell, 5, RGB(70, 76, 90), 1);
     }
@@ -745,7 +1005,7 @@ void RegionEditor::DrawPalette(HDC dc) {
                 bp.CloseFigure();
                 g.SetClip(&bp);
                 Gdiplus::LinearGradientBrush op(Gdiplus::RectF(b.X - 1, b.Y, b.Width + 2, b.Height),
-                                                ui::FromColorRef(currentColor_, 0), ui::FromColorRef(currentColor_, 255),
+                                                ui::FromColorRefRaw(currentColor_, 0), ui::FromColorRefRaw(currentColor_, 255),
                                                 Gdiplus::LinearGradientModeHorizontal);
                 g.FillRectangle(&op, b);
                 g.ResetClip();
@@ -889,12 +1149,14 @@ void RegionEditor::Paint() {
             RECT sizeRect{selection.left, selection.bottom + 8, selection.left + 132, selection.bottom + 36};
             if (sizeRect.bottom > client.bottom) { sizeRect.top = selection.top - 36; sizeRect.bottom = selection.top - 8; }
             ui::FillRoundRect(renderDc_, sizeRect, 9, RGB(20, 23, 29));
+            PaintEditorChromeBackdrop(renderDc_, sizeRect, 9);
             ui::StrokeRoundRect(renderDc_, sizeRect, 9, RGB(64, 70, 84));
             DrawTextCentered(renderDc_, sizeText, sizeRect, RGB(224, 229, 238), sizeFont_);
         }
         if (windowChoicePending_) {
             const RECT panel = WindowChoicePanel();
             ui::FillRoundRect(renderDc_, panel, 18, RGB(18, 21, 27));
+            PaintEditorChromeBackdrop(renderDc_, panel, 18);
             ui::StrokeRoundRect(renderDc_, panel, 18, RGB(66, 78, 96), 1);
             DrawTextCentered(renderDc_, L"What should Luna Capture do with this window?", RECT{panel.left + 16, panel.top + 10, panel.right - 16, panel.top + 48},
                              RGB(238, 242, 249), hintFont_);
@@ -906,7 +1168,8 @@ void RegionEditor::Paint() {
                 DrawTextCentered(renderDc_, labels[i], button, RGB(250, 252, 255), sizeFont_);
             }
         } else {
-            RECT message{0, client.bottom / 2 - 36, client.right, client.bottom / 2 + 36};
+            const RECT host = PrimaryMonitorClientRect();
+            RECT message{host.left, (host.top + host.bottom) / 2 - 36, host.right, (host.top + host.bottom) / 2 + 36};
             DrawTextCentered(renderDc_, L"Hover a window and click to capture   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
         }
     } else if (HasSelection()) {
@@ -916,23 +1179,50 @@ void RegionEditor::Paint() {
         HRGN clip = CreateRectRgn(selection.left, selection.top, selection.right, selection.bottom);
         SelectClipRgn(renderDc_, clip);
         DrawAnnotations(renderDc_, POINT{0, 0});
+        // Outline whatever the Move tool is about to pick up, so it is obvious
+        // that a drawing can be dragged on its own rather than with the region.
+        if (tool_ == Tool::Move && movingAnnotation_ < 0 && hoveredAnnotation_ >= 0 &&
+            hoveredAnnotation_ < static_cast<int>(annotations_.size())) {
+            const Annotation& hovered = annotations_[static_cast<std::size_t>(hoveredAnnotation_)];
+            RECT bounds{};
+            if (!hovered.points.empty()) {
+                bounds = RECT{hovered.points.front().x, hovered.points.front().y,
+                              hovered.points.front().x, hovered.points.front().y};
+                for (const POINT& p : hovered.points) {
+                    bounds.left = (std::min)(bounds.left, p.x);
+                    bounds.top = (std::min)(bounds.top, p.y);
+                    bounds.right = (std::max)(bounds.right, p.x);
+                    bounds.bottom = (std::max)(bounds.bottom, p.y);
+                }
+            } else {
+                bounds = NormalizeRectPoints(hovered.start, hovered.end);
+            }
+            InflateRect(&bounds, 7, 7);
+            ui::StrokeRoundRect(renderDc_, bounds, 5, RGB(150, 205, 255), 1, 190);
+        }
         SelectClipRgn(renderDc_, nullptr);
         DeleteObject(clip);
 
         ui::StrokeRoundRect(renderDc_, selection, 2, RGB(112, 181, 255), 2);
+        if (tool_ == Tool::Move) DrawSelectionGrips(renderDc_, selection);
 
         wchar_t sizeText[64]{};
         swprintf_s(sizeText, L"%ld x %ld", selection.right - selection.left, selection.bottom - selection.top);
         RECT sizeRect{selection.left, selection.bottom + 8, selection.left + 120, selection.bottom + 36};
         if (sizeRect.bottom > client.bottom) { sizeRect.top = selection.top - 36; sizeRect.bottom = selection.top - 8; }
         ui::FillRoundRect(renderDc_, sizeRect, 9, RGB(20, 23, 29));
+        PaintEditorChromeBackdrop(renderDc_, sizeRect, 9);
         ui::StrokeRoundRect(renderDc_, sizeRect, 9, RGB(64, 70, 84));
         DrawTextCentered(renderDc_, sizeText, sizeRect, RGB(224, 229, 238), sizeFont_);
         UpdateToolbarRect();
         DrawToolbar(renderDc_, selection);
         if (paletteOpen_) DrawPalette(renderDc_);
     } else {
-        RECT message{0, client.bottom / 2 - 36, client.right, client.bottom / 2 + 36};
+        // Selection itself still works across every monitor - only the caption is
+        // pinned to the primary one, because centring it on the virtual desktop
+        // dropped it onto the seam between two screens.
+        const RECT host = PrimaryMonitorClientRect();
+        RECT message{host.left, (host.top + host.bottom) / 2 - 36, host.right, (host.top + host.bottom) / 2 + 36};
         DrawTextCentered(renderDc_, L"Drag to select   •   Ctrl+A full screen   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
     }
 
@@ -987,11 +1277,12 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if (wParam == '1' || wParam == 'V') { SetTool(Tool::Select); return 0; }
-            if (wParam == '2' || wParam == 'A') { SetTool(Tool::Arrow); return 0; }
-            if (wParam == '3' || wParam == 'R') { SetTool(Tool::Rectangle); return 0; }
-            if (wParam == '4' || wParam == 'P') { SetTool(Tool::Pen); return 0; }
-            if (wParam == '5' || wParam == 'H') { SetTool(Tool::Highlighter); return 0; }
-            if (wParam == '6' || wParam == 'E') { SetTool(Tool::Eraser); return 0; }
+            if (wParam == '2' || wParam == 'M') { SetTool(Tool::Move); return 0; }
+            if (wParam == '3' || wParam == 'A') { SetTool(Tool::Arrow); return 0; }
+            if (wParam == '4' || wParam == 'R') { SetTool(Tool::Rectangle); return 0; }
+            if (wParam == '5' || wParam == 'P') { SetTool(Tool::Pen); return 0; }
+            if (wParam == '6' || wParam == 'H') { SetTool(Tool::Highlighter); return 0; }
+            if (wParam == '7' || wParam == 'E') { SetTool(Tool::Eraser); return 0; }
             if (wParam == 'B') { SetColor(kSwatches[6]); return 0; }
             if (wParam == 'G') { SetColor(kSwatches[5]); return 0; }
             if (wParam == 'T') { SetColor(kSwatches[2]); return 0; }
@@ -1051,8 +1342,52 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
             if (paletteOpen_) { ClosePalette(); return 0; }
 
+            // Move grabs an existing region; anywhere outside it still starts a new
+            // one, so "reframe this" and "select something else" both work without
+            // switching tools. Order matters: the edge grips are small and sit on
+            // the border, so they win over an annotation drawn along it; inside the
+            // region, ink wins over the body so a single drawing can be nudged on
+            // its own.
+            const Grip grip = GripAt(point);
+            if (grip != Grip::None && grip != Grip::Body) {
+                activeGrip_ = grip;
+                gripDragStart_ = point;
+                gripStartSelection_ = NormalizedSelection();
+                gripStartAnnotations_ = annotations_;
+                drawingAnnotation_ = false;
+                draggingSelection_ = false;
+                SetCapture(hwnd_);
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (tool_ == Tool::Move) {
+                const int annotationIndex = AnnotationAt(point);
+                if (annotationIndex >= 0) {
+                    movingAnnotation_ = annotationIndex;
+                    annotationDragStart_ = point;
+                    annotationDragOrigin_ = annotations_[static_cast<std::size_t>(annotationIndex)];
+                    drawingAnnotation_ = false;
+                    draggingSelection_ = false;
+                    SetCapture(hwnd_);
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                    return 0;
+                }
+            }
+            if (grip == Grip::Body) {
+                activeGrip_ = grip;
+                gripDragStart_ = point;
+                gripStartSelection_ = NormalizedSelection();
+                gripStartAnnotations_ = annotations_;
+                drawingAnnotation_ = false;
+                draggingSelection_ = false;
+                SetCapture(hwnd_);
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+
             const RECT selection = NormalizedSelection();
-            if (!HasSelection() || !PointInside(selection, point) || tool_ == Tool::Select) {
+            if (!HasSelection() || !PointInside(selection, point) || tool_ == Tool::Select || tool_ == Tool::Move) {
+                const bool keepMoveTool = tool_ == Tool::Move;
                 draggingSelection_ = true;
                 drawingAnnotation_ = false;
                 dragStart_ = point;
@@ -1060,7 +1395,7 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 selection_ = {};
                 annotations_.clear();
                 redoAnnotations_.clear();
-                tool_ = Tool::Select;
+                if (!keepMoveTool) tool_ = Tool::Select;
                 hoveredToolbar_ = ToolbarAction::None;
             } else if (tool_ == Tool::Eraser) {
                 drawingAnnotation_ = true;
@@ -1091,6 +1426,14 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 ApplyPalettePoint(paletteDrag_, point);
                 return 0;
             }
+            if (movingAnnotation_ >= 0) {
+                ApplyAnnotationDrag(point);
+                return 0;
+            }
+            if (activeGrip_ != Grip::None) {
+                ApplyGripDrag(point);
+                return 0;
+            }
             if (mode_ == SessionMode::WindowPicker) {
                 if (windowChoicePending_) return 0;
                 RECT previous = hoveredWindowRect_;
@@ -1118,8 +1461,41 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                     hoveredToolbar_ = next;
                     InvalidateRect(hwnd_, &toolbarRect_, FALSE);
                 }
+                const Grip grip = next == ToolbarAction::None ? GripAt(point) : Grip::None;
+                const int annotation = next == ToolbarAction::None && grip != Grip::Left && grip != Grip::Right &&
+                                               grip != Grip::Top && grip != Grip::Bottom &&
+                                               grip != Grip::TopLeft && grip != Grip::TopRight &&
+                                               grip != Grip::BottomLeft && grip != Grip::BottomRight
+                                           ? AnnotationAt(point)
+                                           : -1;
+                if (grip != hoveredGrip_ || annotation != hoveredAnnotation_) {
+                    hoveredGrip_ = grip;
+                    hoveredAnnotation_ = annotation;
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                }
             }
             return 0;
+        }
+        case WM_SETCURSOR: {
+            // Only the client area; the toolbar and palette keep the arrow.
+            if (LOWORD(lParam) != HTCLIENT) break;
+            if (movingAnnotation_ >= 0 || (activeGrip_ == Grip::None && hoveredAnnotation_ >= 0)) {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+                return TRUE;
+            }
+            const Grip grip = activeGrip_ != Grip::None ? activeGrip_ : hoveredGrip_;
+            const wchar_t* cursor = nullptr;
+            switch (grip) {
+                case Grip::Body: cursor = IDC_SIZEALL; break;
+                case Grip::Left: case Grip::Right: cursor = IDC_SIZEWE; break;
+                case Grip::Top: case Grip::Bottom: cursor = IDC_SIZENS; break;
+                case Grip::TopLeft: case Grip::BottomRight: cursor = IDC_SIZENWSE; break;
+                case Grip::TopRight: case Grip::BottomLeft: cursor = IDC_SIZENESW; break;
+                default: break;
+            }
+            if (!cursor) break;
+            SetCursor(LoadCursorW(nullptr, cursor));
+            return TRUE;
         }
         case WM_MOUSELEAVE:
             if (mode_ == SessionMode::WindowPicker) {
@@ -1131,11 +1507,33 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 hoveredToolbar_ = ToolbarAction::None;
                 InvalidateRect(hwnd_, &toolbarRect_, FALSE);
             }
+            if (hoveredAnnotation_ >= 0 || hoveredGrip_ != Grip::None) {
+                hoveredAnnotation_ = -1;
+                hoveredGrip_ = Grip::None;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
             return 0;
         case WM_LBUTTONUP: {
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (paletteDrag_ != PaletteTarget::None) {
                 paletteDrag_ = PaletteTarget::None;
+                ReleaseCapture();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (movingAnnotation_ >= 0) {
+                ApplyAnnotationDrag(point);
+                movingAnnotation_ = -1;
+                hoveredAnnotation_ = AnnotationAt(point);
+                ReleaseCapture();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (activeGrip_ != Grip::None) {
+                ApplyGripDrag(point);
+                activeGrip_ = Grip::None;
+                gripStartAnnotations_.clear();
+                hoveredGrip_ = GripAt(point);
                 ReleaseCapture();
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
@@ -1152,6 +1550,11 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 draggingSelection_ = false;
                 dragCurrent_ = point;
                 selection_ = NormalizeRectPoints(dragStart_, dragCurrent_);
+                // Land on Move once a region exists: the common next action is
+                // nudging or resizing what was just drawn, and requiring a trip to
+                // the toolbar for that made the tool feel one-shot.
+                if (tool_ == Tool::Select && HasSelection()) tool_ = Tool::Move;
+                hoveredGrip_ = GripAt(point);
                 UpdateToolbarRect();
             } else if (drawingAnnotation_) {
                 drawingAnnotation_ = false;

@@ -13,9 +13,11 @@ constexpr int kHeaderHeight = 38;
 constexpr int kBottomPadding = 5;
 constexpr int kSeparatorHeight = 5;
 constexpr int kCornerRadius = 16;
+constexpr UINT_PTR kThemeTimer = 1;
+constexpr UINT kThemeFrameMs = 33;
 
 void Fill(HDC dc, const RECT& rect, COLORREF color) {
-    HBRUSH brush = CreateSolidBrush(color);
+    HBRUSH brush = CreateSolidBrush(ui::ResolveThemeColor(color));
     FillRect(dc, &rect, brush);
     DeleteObject(brush);
 }
@@ -29,11 +31,26 @@ void StrokeRound(HDC dc, const RECT& rect, int radius, COLORREF color) {
 }
 
 void Text(HDC dc, const std::wstring& value, RECT rect, COLORREF color, HFONT font, UINT flags) {
+    const std::wstring translated = ui::TranslateText(value);
     const HGDIOBJ oldFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, color);
-    DrawTextW(dc, value.c_str(), -1, &rect, flags | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER);
+    SetTextColor(dc, ui::ResolveThemeColor(color));
+    DrawTextW(dc, translated.c_str(), -1, &rect, flags | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER);
     SelectObject(dc, oldFont);
+}
+
+UiIcon PluginIcon(const std::wstring& name) {
+    if (name == L"monitor") return UiIcon::Monitor;
+    if (name == L"displays") return UiIcon::AllDisplays;
+    if (name == L"region") return UiIcon::Region;
+    if (name == L"replay") return UiIcon::Replay;
+    if (name == L"record") return UiIcon::Record;
+    if (name == L"folder") return UiIcon::Folder;
+    if (name == L"photo") return UiIcon::Photo;
+    if (name == L"video") return UiIcon::Video;
+    if (name == L"save") return UiIcon::Save;
+    if (name == L"settings") return UiIcon::Settings;
+    return UiIcon::Plugin;
 }
 }
 
@@ -52,20 +69,43 @@ bool TrayMenu::Create(HINSTANCE instance, HWND notifyWindow) {
     hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kTrayMenuClass, L"Luna Capture",
                             WS_POPUP, 0, 0, width_, 100, nullptr, nullptr, instance_, this);
     if (!hwnd_) return false;
-    titleFont_ = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    normalFont_ = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    smallFont_ = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    if (!titleFont_ || !normalFont_ || !smallFont_) {
+    if (!RecreateFonts()) {
         Destroy();
         return false;
     }
     return true;
+}
+
+bool TrayMenu::RecreateFonts() {
+    HFONT newTitle = ui::CreateThemeFont(15, FW_SEMIBOLD);
+    HFONT newNormal = ui::CreateThemeFont(14, FW_NORMAL);
+    HFONT newSmall = ui::CreateThemeFont(12, FW_NORMAL);
+    if (!newTitle || !newNormal || !newSmall) {
+        if (newTitle) DeleteObject(newTitle);
+        if (newNormal) DeleteObject(newNormal);
+        if (newSmall) DeleteObject(newSmall);
+        return false;
+    }
+
+    HFONT oldTitle = titleFont_;
+    HFONT oldNormal = normalFont_;
+    HFONT oldSmall = smallFont_;
+    titleFont_ = newTitle;
+    normalFont_ = newNormal;
+    smallFont_ = newSmall;
+    if (oldTitle) DeleteObject(oldTitle);
+    if (oldNormal) DeleteObject(oldNormal);
+    if (oldSmall) DeleteObject(oldSmall);
+    return true;
+}
+
+void TrayMenu::UpdateThemeTimer() {
+    if (!hwnd_ || !IsWindow(hwnd_)) return;
+    if (IsWindowVisible(hwnd_) && ui::IsThemeBackdropAnimated()) {
+        SetTimer(hwnd_, kThemeTimer, kThemeFrameMs, nullptr);
+    } else {
+        KillTimer(hwnd_, kThemeTimer);
+    }
 }
 
 void TrayMenu::ReleaseGraphics() {
@@ -99,6 +139,7 @@ bool TrayMenu::EnsureBackBuffer(int width, int height) {
 }
 
 void TrayMenu::Destroy() {
+    if (hwnd_ && IsWindow(hwnd_)) KillTimer(hwnd_, kThemeTimer);
     ReleaseGraphics();
     if (titleFont_) { DeleteObject(titleFont_); titleFont_ = nullptr; }
     if (normalFont_) { DeleteObject(normalFont_); normalFont_ = nullptr; }
@@ -127,7 +168,7 @@ int TrayMenu::HitTest(POINT point) const {
 }
 
 void TrayMenu::Show(POINT screenPoint, const AppSettings& settings, bool recording, bool replayBuffering,
-                    std::uint32_t activeReplayMask) {
+                    std::uint32_t activeReplayMask, const std::vector<TrayPluginCommand>& pluginCommands) {
     items_ = {
         {TrayCommand::Open, UiIcon::Home, L"Open Luna Capture", L"", false, false},
         {TrayCommand::CaptureActive, UiIcon::Monitor, L"Active display", FormatHotkey(settings.activeDisplayHotkey.modifiers, settings.activeDisplayHotkey.vk), true, false},
@@ -150,6 +191,11 @@ void TrayMenu::Show(POINT screenPoint, const AppSettings& settings, bool recordi
                               UiIcon::Monitor, L"  Save Monitor " + std::to_wstring(index + 1), shortcut, false, false});
         }
     }
+    for (std::size_t index = 0; index < pluginCommands.size(); ++index) {
+        const auto& command = pluginCommands[index];
+        items_.push_back({TrayCommand::PluginCommand, PluginIcon(command.icon), command.title, L"",
+                          index == 0, false, index});
+    }
     const std::vector<Item> tail = {
         {TrayCommand::OpenRecordings, UiIcon::Folder, L"Recording folder", L"", false, false},
         {TrayCommand::ToggleSound, UiIcon::Sound, L"Capture sound", L"", true, settings.sound},
@@ -171,13 +217,25 @@ void TrayMenu::Show(POINT screenPoint, const AppSettings& settings, bool recordi
     SetWindowPos(hwnd_, HWND_TOPMOST, x, y, width_, height, SWP_SHOWWINDOW);
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     SetForegroundWindow(hwnd_);
+    UpdateThemeTimer();
     InvalidateRect(hwnd_, nullptr, FALSE);
     UpdateWindow(hwnd_);
 }
 
 void TrayMenu::Hide() {
-    if (hwnd_) ShowWindow(hwnd_, SW_HIDE);
+    if (hwnd_) {
+        KillTimer(hwnd_, kThemeTimer);
+        ShowWindow(hwnd_, SW_HIDE);
+    }
     hovered_ = pressed_ = -1;
+}
+
+void TrayMenu::RefreshTheme() {
+    RecreateFonts();
+    UpdateThemeTimer();
+    if (hwnd_ && IsWindowVisible(hwnd_)) {
+        RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
 }
 
 void TrayMenu::Paint() {
@@ -200,6 +258,7 @@ void TrayMenu::Paint() {
     ui::MakeLayeredSurfaceOpaque(backBufferPixels_, width, height);
     RECT shell{0, 0, width, height};
     FillRound(backBufferDc_, shell, kCornerRadius, RGB(18, 21, 27));
+    ui::PaintThemeBackdrop(backBufferDc_, client, ui::ThemeSurface::Panel, GetTickCount64());
     StrokeRound(backBufferDc_, RECT{0, 0, width - 1, height - 1}, kCornerRadius, RGB(55, 61, 73));
 
     RECT header{6, 6, width - 6, kTopPadding + kHeaderHeight - 2};
@@ -262,6 +321,16 @@ LRESULT TrayMenu::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_PAINT: Paint(); return 0;
         case WM_ERASEBKGND: return 1;
+        case WM_TIMER:
+            if (wParam == kThemeTimer) {
+                if (!IsWindowVisible(hwnd_) || !ui::IsThemeBackdropAnimated()) {
+                    KillTimer(hwnd_, kThemeTimer);
+                } else {
+                    RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+                }
+                return 0;
+            }
+            break;
         case WM_NCHITTEST: {
             RECT client{};
             GetClientRect(hwnd_, &client);
@@ -306,13 +375,15 @@ LRESULT TrayMenu::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     hovered_ = activatedIndex;
                     RECT toggleRect = ItemRect(activatedIndex);
                     InvalidateRect(hwnd_, &toggleRect, FALSE);
-                    PostMessageW(notifyWindow_, WM_APP_TRAY_COMMAND, static_cast<WPARAM>(command), 0);
+                    PostMessageW(notifyWindow_, WM_APP_TRAY_COMMAND, static_cast<WPARAM>(command),
+                                 static_cast<LPARAM>(items_[static_cast<std::size_t>(activatedIndex)].dataIndex));
                     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0,
                                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                     return 0;
                 }
                 Hide();
-                PostMessageW(notifyWindow_, WM_APP_TRAY_COMMAND, static_cast<WPARAM>(command), 0);
+                PostMessageW(notifyWindow_, WM_APP_TRAY_COMMAND, static_cast<WPARAM>(command),
+                             static_cast<LPARAM>(items_[static_cast<std::size_t>(activatedIndex)].dataIndex));
             }
             pressed_ = -1;
             return 0;
@@ -325,6 +396,10 @@ LRESULT TrayMenu::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return 0;
         case WM_KEYDOWN:
             if (wParam == VK_ESCAPE) Hide();
+            return 0;
+        case WM_DESTROY:
+            KillTimer(hwnd_, kThemeTimer);
+            hwnd_ = nullptr;
             return 0;
         default: break;
     }

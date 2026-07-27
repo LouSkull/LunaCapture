@@ -8,6 +8,10 @@
 #include <Windows.h>
 #include <avrt.h>
 #include <audioclient.h>
+// icodecapi.h declares the ICodecAPI interface; codecapi.h carries the
+// CODECAPI_* property GUIDs and the rate-control enums used to tune the encoder.
+#include <icodecapi.h>
+#include <codecapi.h>
 #include <d3d11.h>
 #include <dxgi1_5.h>
 #include <mfapi.h>
@@ -19,6 +23,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -29,6 +34,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <immintrin.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -55,14 +61,37 @@ std::wstring HResultText(HRESULT hr) {
     return result;
 }
 
-std::wstring TimestampedPath(const std::wstring& directory, const wchar_t* prefix) {
-    SYSTEMTIME time{};
-    GetLocalTime(&time);
-    wchar_t filename[160]{};
-    swprintf_s(filename, L"%s_%04u-%02u-%02u_%02u-%02u-%02u-%03u.mp4", prefix,
-               time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute,
-               time.wSecond, time.wMilliseconds);
-    return (std::filesystem::path(directory) / filename).wstring();
+// Codec -> (encoder subtype, muxer, file extension). Not every codec fits every
+// container, so the three travel together: asking the MP4 muxer for MJPEG or the
+// AVI muxer for HEVC fails at AddStream even when the encoder itself exists.
+struct VideoCodecProfile {
+    const GUID& subtype;
+    const GUID& container;
+    const wchar_t* extension;
+    const wchar_t* name;
+};
+
+const VideoCodecProfile& CodecProfile(VideoCodec codec) {
+    static const VideoCodecProfile kProfiles[kVideoCodecCount] = {
+        {MFVideoFormat_H264, MFTranscodeContainerType_MPEG4,  L".mp4", L"H.264 / AVC"},
+        {MFVideoFormat_HEVC, MFTranscodeContainerType_MPEG4,  L".mp4", L"HEVC / H.265"},
+        {MFVideoFormat_AV1,  MFTranscodeContainerType_MPEG4,  L".mp4", L"AV1"},
+        {MFVideoFormat_VP90, MFTranscodeContainerType_MPEG4,  L".mp4", L"VP9"},
+        {MFVideoFormat_H264, MFTranscodeContainerType_FMPEG4, L".mp4", L"H.264 fragmented"},
+        {MFVideoFormat_HEVC, MFTranscodeContainerType_FMPEG4, L".mp4", L"HEVC fragmented"},
+        {MFVideoFormat_MP4V, MFTranscodeContainerType_MPEG4,  L".mp4", L"MPEG-4 Part 2"},
+        {MFVideoFormat_H263, MFTranscodeContainerType_3GP,    L".3gp", L"H.263"},
+        {MFVideoFormat_WMV3, MFTranscodeContainerType_ASF,    L".wmv", L"Windows Media Video 9"},
+        {MFVideoFormat_WVC1, MFTranscodeContainerType_ASF,    L".wmv", L"VC-1"},
+        {MFVideoFormat_MJPG, MFTranscodeContainerType_AVI,    L".avi", L"Motion JPEG"},
+        {MFVideoFormat_H264, MFTranscodeContainerType_AVI,    L".avi", L"H.264 in AVI"},
+    };
+    const int index = static_cast<int>(codec);
+    return kProfiles[index >= 0 && index < kVideoCodecCount ? index : 0];
+}
+
+std::wstring TimestampedPath(const std::wstring& directory, const wchar_t* prefix, VideoCodec codec) {
+    return MakeChronologicalMediaPath(directory, prefix ? prefix : L"Recording", CodecProfile(codec).extension);
 }
 
 UINT Even(UINT value) { return value > 1 ? value & ~1u : 2u; }
@@ -110,10 +139,20 @@ class DesktopRecorderSource {
 public:
     ~DesktopRecorderSource() { Reset(); }
 
-    bool Initialize(int requestedIndex, std::wstring& error) {
+    bool Initialize(int requestedIndex, int requestedHeight, CapturePriority priority, std::wstring& error) {
         Reset();
         requestedIndex_ = (std::max)(0, requestedIndex);
-        const ULONGLONG deadline = GetTickCount64() + 5000;
+        requestedHeight_ = requestedHeight > 0 ? Even(static_cast<UINT>(requestedHeight)) : 0;
+        // "CPU priority" keeps the GPU free for the game: the frame resize falls
+        // back to StretchDIBits on the CPU instead of the D3D video processor.
+        priority_ = priority;
+        gpuScalingAllowed_ = priority != CapturePriority::Cpu;
+        if (!EnsureRecoverySurface(error)) return false;
+        recovering_ = true;
+        // Give the normal path a brief head start, then begin the MP4 with the recovery
+        // card. A protected/fullscreen source must not leave Record/Replay stuck in a
+        // five-second startup attempt before automatic retries can take over.
+        const ULONGLONG deadline = GetTickCount64() + 1000;
         std::wstring lastError;
         while (GetTickCount64() < deadline) {
             if (!duplication_ && !Connect(lastError)) {
@@ -121,11 +160,17 @@ public:
                 continue;
             }
             std::wstring frameError;
-            if (AcquireLatest(250, frameError) && ReadFrame(false, frameError)) return true;
+            if (AcquireLatest(250, frameError) && ReadFrame(false, frameError) && hasFrame_) {
+                recovering_ = false;
+                lastCaptureError_.clear();
+                return true;
+            }
             if (!frameError.empty()) lastError = frameError;
         }
-        error = lastError.empty() ? L"Fullscreen display did not deliver a frame" : lastError;
-        return false;
+        lastCaptureError_ = lastError.empty() ? L"Fullscreen display did not deliver a frame" : lastError;
+        AppendDiagnosticLog(lastCaptureError_ + L" · recording will use a recovery frame and retry automatically");
+        error.clear();
+        return true;
     }
 
     bool AcquireLatest(DWORD timeoutMs, std::wstring& error) {
@@ -136,10 +181,10 @@ public:
             std::wstring reconnectError;
             if (!Connect(reconnectError)) {
                 nextReconnectTick_ = now + 250;
+                lastCaptureError_ = reconnectError;
                 if (!hasFrame_) error = reconnectError;
                 return hasFrame_;
             }
-            recovering_ = false;
         }
 
         DXGI_OUTDUPL_FRAME_INFO info{};
@@ -148,23 +193,24 @@ public:
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) return hasFrame_;
         if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_DEVICE_REMOVED ||
             hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_SESSION_DISCONNECTED) {
+            lastCaptureError_ = L"Fullscreen capture was interrupted: " + HResultText(hr);
             BeginReconnect();
             return hasFrame_;
         }
         if (FAILED(hr)) {
-            if (hasFrame_) {
-                AppendDiagnosticLog(L"AcquireNextFrame failed while a cached frame was available: " + HResultText(hr));
-                BeginReconnect();
-                return true;
-            }
             error = L"Recording AcquireNextFrame: " + HResultText(hr);
+            lastCaptureError_ = error;
             AppendDiagnosticLog(error);
+            BeginReconnect();
             return false;
         }
         struct ReleaseGuard {
-            IDXGIOutputDuplication* duplication = nullptr;
+            // Reconnect paths reset DesktopRecorderSource::duplication_ before this
+            // scope exits. Keep our own COM reference so ReleaseFrame never targets
+            // an object that was destroyed by BeginReconnect().
+            ComPtr<IDXGIOutputDuplication> duplication;
             ~ReleaseGuard() { if (duplication) duplication->ReleaseFrame(); }
-        } guard{duplication_.Get()};
+        } guard{duplication_};
 
         if (info.LastMouseUpdateTime.QuadPart != 0) {
             pointerVisible_ = info.PointerPosition.Visible != FALSE;
@@ -185,40 +231,101 @@ public:
 
         ComPtr<ID3D11Texture2D> frame;
         if (FAILED(resource.As(&frame))) {
-            if (hasFrame_) { BeginReconnect(); return true; }
             error = L"Desktop recording frame is not a texture";
+            lastCaptureError_ = error;
+            BeginReconnect();
             return false;
         }
         D3D11_TEXTURE2D_DESC desc{};
         frame->GetDesc(&desc);
         if (!EnsureSurfaces(desc, error)) {
-            if (hasFrame_) { error.clear(); BeginReconnect(); return true; }
+            lastCaptureError_ = error;
+            BeginReconnect();
             return false;
         }
-        context_->CopyResource(staging_.Get(), frame.Get());
-        nativeFrameReady_ = true;
+        // Screenshots must not inherit the encoder's downscale. Whenever the CPU readback
+        // path is lossy (GPU scaler active, or the DIB kept an older session size), keep a
+        // native-resolution GPU copy of the newest raw frame for ReadNativeSnapshot.
+        if (gpuScaling_ || nativeWidth_ != width_ || nativeHeight_ != height_) {
+            if (!nativeCopy_ || nativeCopyDesc_.Width != desc.Width || nativeCopyDesc_.Height != desc.Height ||
+                nativeCopyDesc_.Format != desc.Format) {
+                nativeCopy_.Reset();
+                nativeCopyStaging_.Reset();
+                nativeCopyValid_ = false;
+                D3D11_TEXTURE2D_DESC copy = desc;
+                copy.MipLevels = 1;
+                copy.ArraySize = 1;
+                copy.SampleDesc.Count = 1;
+                copy.SampleDesc.Quality = 0;
+                copy.Usage = D3D11_USAGE_DEFAULT;
+                copy.BindFlags = 0;
+                copy.CPUAccessFlags = 0;
+                copy.MiscFlags = 0;
+                if (SUCCEEDED(device_->CreateTexture2D(&copy, nullptr, &nativeCopy_))) nativeCopyDesc_ = copy;
+            }
+            if (nativeCopy_) {
+                context_->CopyResource(nativeCopy_.Get(), frame.Get());
+                nativeCopyValid_ = true;
+            }
+        } else if (nativeCopy_) {
+            nativeCopy_.Reset();
+            nativeCopyStaging_.Reset();
+            nativeCopyValid_ = false;
+        }
+        // Keep GPU readback one or two frames behind the desktop. Mapping the
+        // texture copied in this same iteration forces a pipeline flush and can
+        // steal several milliseconds from a fullscreen game's render queue.
+        ID3D11Texture2D* readbackSource = frame.Get();
+        if (gpuScaling_) {
+            if (!ScaleFrameOnGpu(frame.Get(), error)) {
+                AppendDiagnosticLog(error + L" · switching to native readback fallback");
+                gpuScalingAllowed_ = false;
+                lastCaptureError_ = error;
+                BeginReconnect();
+                return false;
+            }
+            readbackSource = scaledFrame_.Get();
+        }
+        if (pendingStagingCopies_ < staging_.size()) {
+            context_->CopyResource(staging_[stagingWriteIndex_].Get(), readbackSource);
+            stagingWriteIndex_ = (stagingWriteIndex_ + 1) % staging_.size();
+            ++pendingStagingCopies_;
+            nativeFrameReady_ = true;
+        }
         return true;
     }
 
     const BYTE* ReadFrame(bool drawCursor, std::wstring& error) {
         if (!dibBits_) { error = L"No desktop frame surface is ready"; return nullptr; }
         if (!nativeFrameReady_) {
-            if (!hasFrame_) return nullptr;
+            if (!hasFrame_) return recovering_ ? static_cast<const BYTE*>(dibBits_) : nullptr;
+            RestoreCursorBackground();
+            if (drawCursor) DrawCursor();
+            return static_cast<const BYTE*>(dibBits_);
+        }
+        if (hasFrame_ && pendingStagingCopies_ < 2) {
+            // Deliberately keep one frame of distance between CopyResource and
+            // Map. A recording can tolerate ~16 ms latency; the game's render
+            // queue should never be flushed just to obtain the newest pixels.
             RestoreCursorBackground();
             if (drawCursor) DrawCursor();
             return static_cast<const BYTE*>(dibBits_);
         }
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        const HRESULT hr = context_->Map(staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        const UINT mapFlags = hasFrame_ ? D3D11_MAP_FLAG_DO_NOT_WAIT : 0;
+        const HRESULT hr = context_->Map(staging_[stagingReadIndex_].Get(), 0, D3D11_MAP_READ, mapFlags, &mapped);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING && hasFrame_) {
+            // The GPU is busy with the game. Reuse the last completed desktop
+            // image rather than blocking both workloads on a synchronous readback.
+            RestoreCursorBackground();
+            if (drawCursor) DrawCursor();
+            return static_cast<const BYTE*>(dibBits_);
+        }
         if (FAILED(hr)) {
-            BeginReconnect();
-            if (hasFrame_) {
-                RestoreCursorBackground();
-                if (drawCursor) DrawCursor();
-                return static_cast<const BYTE*>(dibBits_);
-            }
             error = L"Map recording frame: " + HResultText(hr);
-            return nullptr;
+            lastCaptureError_ = error;
+            BeginReconnect();
+            return static_cast<const BYTE*>(dibBits_);
         }
 
         const auto* source = static_cast<const BYTE*>(mapped.pData);
@@ -236,36 +343,88 @@ public:
                            source + static_cast<std::size_t>(y) * mapped.RowPitch, nativeWidth_, format_);
             }
         }
-        context_->Unmap(staging_.Get(), 0);
+        context_->Unmap(staging_[stagingReadIndex_].Get(), 0);
+        stagingReadIndex_ = (stagingReadIndex_ + 1) % staging_.size();
+        if (pendingStagingCopies_ > 0) --pendingStagingCopies_;
         if (nativeWidth_ != width_ || nativeHeight_ != height_) ScaleNativeFrame();
         cursorBackupValid_ = false;
         hasFrame_ = true;
-        nativeFrameReady_ = false;
+        recovering_ = false;
+        lastCaptureError_.clear();
+        nativeFrameReady_ = pendingStagingCopies_ != 0;
         if (IsNearlyBlack()) {
             ++blackFrameCount_;
-            if (blackFrameCount_ >= 120 && blackFallbacks_ < 2) {
+            // Keep retrying for as long as the source stays black instead of giving up after a
+            // handful of attempts — a stuck capture should never be left to record black forever.
+            if (blackFrameCount_ >= 120) {
                 ++blackFallbacks_;
                 blackFrameCount_ = 0;
-                AppendDiagnosticLog(L"Sustained black fullscreen frames detected; forcing backend fallback");
+                AppendDiagnosticLog(L"Sustained black fullscreen frames detected; forcing backend fallback (attempt " +
+                                    std::to_wstring(blackFallbacks_) + L")");
                 BeginReconnect();
             }
         } else {
             blackFrameCount_ = 0;
+            blackFallbacks_ = 0;
         }
         if (drawCursor) DrawCursor();
         return static_cast<const BYTE*>(dibBits_);
     }
 
+    // On-demand native-resolution readback for screenshots. Returns false when the regular
+    // ReadFrame path is already lossless (no downscale, DIB matches the readback size) or
+    // no raw frame has been copied yet; callers then fall back to ReadFrame's pixels.
+    bool ReadNativeSnapshot(FrameBuffer& out) {
+        if (!nativeCopyValid_ || !nativeCopy_ || !device_ || !context_) return false;
+        if (!nativeCopyStaging_) {
+            D3D11_TEXTURE2D_DESC staging = nativeCopyDesc_;
+            staging.Usage = D3D11_USAGE_STAGING;
+            staging.BindFlags = 0;
+            staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            staging.MiscFlags = 0;
+            if (FAILED(device_->CreateTexture2D(&staging, nullptr, &nativeCopyStaging_))) return false;
+        }
+        context_->CopyResource(nativeCopyStaging_.Get(), nativeCopy_.Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        // A synchronous map is acceptable here: this runs once per screenshot, not per frame.
+        if (FAILED(context_->Map(nativeCopyStaging_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
+        out.width = nativeCopyDesc_.Width;
+        out.height = nativeCopyDesc_.Height;
+        out.stride = out.width * 4;
+        out.virtualRect = captureDesktopRect_;
+        out.bgra.resize(static_cast<std::size_t>(out.stride) * out.height);
+        const auto* source = static_cast<const BYTE*>(mapped.pData);
+        for (UINT y = 0; y < out.height; ++y) {
+            ConvertRow(out.bgra.data() + static_cast<std::size_t>(y) * out.stride,
+                       source + static_cast<std::size_t>(y) * mapped.RowPitch, out.width, nativeCopyDesc_.Format);
+        }
+        context_->Unmap(nativeCopyStaging_.Get(), 0);
+        return true;
+    }
+
     UINT Width() const noexcept { return width_; }
     UINT Height() const noexcept { return height_; }
     bool IsRecovering() const noexcept { return recovering_; }
+    const std::wstring& RecoveryDetail() const noexcept { return lastCaptureError_; }
+    const BYTE* EnterRecovery(const std::wstring& detail) {
+        if (!detail.empty()) lastCaptureError_ = detail;
+        if (!recovering_) BeginReconnect();
+        else PaintRecoveryFrame();
+        return static_cast<const BYTE*>(dibBits_);
+    }
     void Release() { Reset(); }
-    void NotifyDisplayChange() { if (hasFrame_) BeginReconnect(); }
-    HMONITOR Monitor() const noexcept { return target_.monitor; }
-    RECT DesktopRect() const noexcept { return target_.desktopRect; }
+    void NotifyDisplayChange() { if (width_ != 0 && height_ != 0) BeginReconnect(); }
+    HMONITOR Monitor() const noexcept { return captureMonitor_; }
+    RECT DesktopRect() const noexcept { return captureDesktopRect_; }
+    // True when the most recent real readback was (near) black — e.g. a monitor
+    // whose exclusive-fullscreen app the desktop duplicator can't read. Used to
+    // hold the last good preview instead of flashing a black tile.
+    bool LastFrameNearlyBlack() const noexcept { return blackFrameCount_ > 0; }
     std::wstring Description() const {
-        return target_.deviceName + L" · " + (usingModernDuplication_ ? L"DXGI 1.5" : L"DXGI legacy") +
-               L" · " + std::to_wstring(width_) + L"x" + std::to_wstring(height_);
+        const std::wstring display = captureDeviceName_.empty() ? L"Desktop" : captureDeviceName_;
+        return display + L" · " + (recovering_ ? L"capture retrying" :
+               (usingModernDuplication_ ? L"DXGI 1.5" : L"DXGI legacy")) + L" · " +
+               std::to_wstring(width_) + L"x" + std::to_wstring(height_);
     }
 
 private:
@@ -312,8 +471,19 @@ private:
 
     static void ConvertRow(BYTE* destination, const BYTE* source, UINT width, DXGI_FORMAT format) {
         if (format == DXGI_FORMAT_B8G8R8A8_UNORM || format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) {
-            std::memcpy(destination, source, static_cast<std::size_t>(width) * 4);
-            for (UINT x = 0; x < width; ++x) destination[static_cast<std::size_t>(x) * 4 + 3] = 255;
+            // Desktop Duplication's alpha channel is not guaranteed. Normalize
+            // four pixels per instruction without a second full-frame pass.
+            const __m128i alpha = _mm_set1_epi32(static_cast<int>(0xff000000u));
+            UINT x = 0;
+            for (; x + 4 <= width; x += 4) {
+                const __m128i pixels = _mm_loadu_si128(reinterpret_cast<const __m128i*>(source + static_cast<std::size_t>(x) * 4));
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + static_cast<std::size_t>(x) * 4),
+                                 _mm_or_si128(pixels, alpha));
+            }
+            for (; x < width; ++x) {
+                auto pixel = reinterpret_cast<const std::uint32_t*>(source)[x] | 0xff000000u;
+                reinterpret_cast<std::uint32_t*>(destination)[x] = pixel;
+            }
             return;
         }
         if (format == DXGI_FORMAT_R8G8B8A8_UNORM || format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
@@ -351,12 +521,132 @@ private:
         std::memset(destination, 0, static_cast<std::size_t>(width) * 4);
     }
 
+    void PaintRecoveryFrame() {
+        if (!dibBits_ || !dibDc_ || width_ == 0 || height_ == 0) return;
+        FillCaptureRecoveryFrame(static_cast<std::uint8_t*>(dibBits_), width_, height_, width_ * 4);
+
+        const int panelLeft = static_cast<int>(width_ / 6);
+        const int panelRight = static_cast<int>(width_ - width_ / 6);
+        const int panelTop = static_cast<int>((height_ * 2) / 5);
+        const int panelBottom = static_cast<int>((height_ * 3) / 5);
+        const int panelHeight = panelBottom - panelTop;
+        const int titlePixels = (std::max)(18, (std::min)(44, static_cast<int>(height_ / 24)));
+        const int detailPixels = (std::max)(13, (std::min)(24, static_cast<int>(height_ / 42)));
+        HFONT titleFont = CreateFontW(-titlePixels, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_NATURAL_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HFONT detailFont = CreateFontW(-detailPixels, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                       CLEARTYPE_NATURAL_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        SetBkMode(dibDc_, TRANSPARENT);
+        if (titleFont) {
+            const HGDIOBJ oldFont = SelectObject(dibDc_, titleFont);
+            SetTextColor(dibDc_, RGB(244, 246, 251));
+            RECT titleRect{panelLeft + 24, panelTop + panelHeight / 7,
+                           panelRight - 24, panelTop + panelHeight / 2};
+            DrawTextW(dibDc_, L"Capture temporarily unavailable", -1, &titleRect,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(dibDc_, oldFont);
+            DeleteObject(titleFont);
+        }
+        if (detailFont) {
+            const HGDIOBJ oldFont = SelectObject(dibDc_, detailFont);
+            SetTextColor(dibDc_, RGB(166, 178, 198));
+            RECT detailRect{panelLeft + 24, panelTop + panelHeight / 2 - 2,
+                            panelRight - 24, panelBottom - panelHeight / 8};
+            DrawTextW(dibDc_, L"Recording continues  •  reconnecting automatically", -1, &detailRect,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(dibDc_, oldFont);
+            DeleteObject(detailFont);
+        }
+        const int dotRadius = (std::max)(2, static_cast<int>(height_ / 270));
+        const int dotY = panelBottom - (std::max)(10, panelHeight / 10);
+        HBRUSH accent = CreateSolidBrush(RGB(124, 112, 238));
+        if (accent) {
+            const HGDIOBJ oldBrush = SelectObject(dibDc_, accent);
+            const HGDIOBJ oldPen = SelectObject(dibDc_, GetStockObject(NULL_PEN));
+            for (int dot = -1; dot <= 1; ++dot) {
+                const int centerX = static_cast<int>(width_ / 2) + dot * dotRadius * 4;
+                Ellipse(dibDc_, centerX - dotRadius, dotY - dotRadius,
+                        centerX + dotRadius + 1, dotY + dotRadius + 1);
+            }
+            SelectObject(dibDc_, oldPen);
+            SelectObject(dibDc_, oldBrush);
+            DeleteObject(accent);
+        }
+        GdiFlush();
+        contentRect_ = RECT{0, 0, static_cast<LONG>(width_), static_cast<LONG>(height_)};
+        cursorBackupValid_ = false;
+    }
+
+    bool EnsureRecoverySurface(std::wstring& error) {
+        if (dibBits_ && width_ != 0 && height_ != 0) return true;
+
+        UINT sourceWidth = 0;
+        UINT sourceHeight = 0;
+        auto targets = EnumerateDisplayTargets();
+        if (!targets.empty()) {
+            const std::size_t index = static_cast<std::size_t>(requestedIndex_) % targets.size();
+            const auto& selected = targets[index];
+            captureMonitor_ = selected.monitor;
+            captureDesktopRect_ = selected.desktopRect;
+            captureDeviceName_ = selected.deviceName;
+            captureAdapterName_ = selected.adapterName;
+            sourceWidth = static_cast<UINT>((std::max)(1L, selected.desktopRect.right - selected.desktopRect.left));
+            sourceHeight = static_cast<UINT>((std::max)(1L, selected.desktopRect.bottom - selected.desktopRect.top));
+        } else {
+            const LONG left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            const LONG top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            sourceWidth = static_cast<UINT>((std::max)(1, GetSystemMetrics(SM_CXVIRTUALSCREEN)));
+            sourceHeight = static_cast<UINT>((std::max)(1, GetSystemMetrics(SM_CYVIRTUALSCREEN)));
+            if (sourceWidth <= 1 || sourceHeight <= 1) {
+                sourceWidth = 1280;
+                sourceHeight = 720;
+            }
+            captureDesktopRect_ = RECT{left, top, left + static_cast<LONG>(sourceWidth),
+                                       top + static_cast<LONG>(sourceHeight)};
+            captureMonitor_ = MonitorFromRect(&captureDesktopRect_, MONITOR_DEFAULTTOPRIMARY);
+            captureDeviceName_ = L"Desktop";
+        }
+
+        height_ = requestedHeight_ > 0 && requestedHeight_ < sourceHeight ? requestedHeight_ : Even(sourceHeight);
+        width_ = requestedHeight_ > 0 && requestedHeight_ < sourceHeight
+            ? Even(static_cast<UINT>((static_cast<std::uint64_t>(sourceWidth) * height_ + sourceHeight / 2) /
+                                     sourceHeight))
+            : Even(sourceWidth);
+
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(info.bmiHeader);
+        info.bmiHeader.biWidth = static_cast<LONG>(width_);
+        info.bmiHeader.biHeight = -static_cast<LONG>(height_);
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        dibDc_ = CreateCompatibleDC(nullptr);
+        if (dibDc_) dib_ = CreateDIBSection(dibDc_, &info, DIB_RGB_COLORS, &dibBits_, nullptr, 0);
+        if (!dibDc_ || !dib_ || !dibBits_) {
+            if (dib_) { DeleteObject(dib_); dib_ = nullptr; }
+            if (dibDc_) { DeleteDC(dibDc_); dibDc_ = nullptr; }
+            dibBits_ = nullptr;
+            width_ = height_ = 0;
+            error = L"Create recording recovery surface failed";
+            return false;
+        }
+        dibOld_ = SelectObject(dibDc_, dib_);
+        PaintRecoveryFrame();
+        return true;
+    }
+
     bool Connect(std::wstring& error) {
         ResetCaptureObjects();
         auto targets = EnumerateDisplayTargets();
         if (targets.empty()) { error = L"No desktop display is available for recording"; return false; }
         const std::size_t index = static_cast<std::size_t>(requestedIndex_) % targets.size();
         target_ = std::move(targets[index]);
+        captureMonitor_ = target_.monitor;
+        captureDesktopRect_ = target_.desktopRect;
+        captureDeviceName_ = target_.deviceName;
+        captureAdapterName_ = target_.adapterName;
 
         const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
                                             D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0};
@@ -378,6 +668,14 @@ private:
             if (hr == E_INVALIDARG) hr = createDevice(flags, levels + 1, static_cast<UINT>(std::size(levels) - 1));
         }
         if (FAILED(hr)) { error = L"Recording D3D device: " + HResultText(hr); return false; }
+
+        ComPtr<IDXGIDevice1> dxgiDevice;
+        if (SUCCEEDED(device_.As(&dxgiDevice))) {
+            // Game-first GPU scheduling: desktop copies run behind foreground
+            // rendering and never build a long device queue.
+            dxgiDevice->SetGPUThreadPriority(-5);
+            dxgiDevice->SetMaximumFrameLatency(1);
+        }
 
         const auto connectModern = [&]() {
             ComPtr<IDXGIOutput5> output5;
@@ -404,26 +702,152 @@ private:
         }
         AppendDiagnosticLog(L"Connected " + target_.deviceName + L" on " + target_.adapterName +
                             (usingModernDuplication_ ? L" using DXGI 1.5" : L" using DXGI legacy"));
-        recovering_ = false;
         nextReconnectTick_ = 0;
         return true;
     }
 
     void BeginReconnect() {
-        preferLegacyDuplication_ = !preferLegacyDuplication_;
+        if (!recovering_) preferLegacyDuplication_ = !preferLegacyDuplication_;
         AppendDiagnosticLog(L"Fullscreen surface changed; switching duplication backend");
         ResetCaptureObjects();
+        hasFrame_ = false;
+        blackFrameCount_ = 0;
         recovering_ = true;
+        PaintRecoveryFrame();
         nextReconnectTick_ = 0;
     }
 
+    void ResetGpuScaler() {
+        scaledOutputView_.Reset();
+        scaledFrame_.Reset();
+        videoProcessor_.Reset();
+        videoEnumerator_.Reset();
+        videoContext_.Reset();
+        videoDevice_.Reset();
+        gpuScaling_ = false;
+    }
+
+    bool ConfigureGpuScaler(const D3D11_TEXTURE2D_DESC& source, UINT outputWidth, UINT outputHeight,
+                            std::wstring& error) {
+        ResetGpuScaler();
+        HRESULT hr = device_.As(&videoDevice_);
+        if (SUCCEEDED(hr)) hr = context_.As(&videoContext_);
+
+        D3D11_VIDEO_PROCESSOR_CONTENT_DESC content{};
+        content.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
+        content.InputFrameRate = DXGI_RATIONAL{60, 1};
+        content.InputWidth = source.Width;
+        content.InputHeight = source.Height;
+        content.OutputFrameRate = DXGI_RATIONAL{60, 1};
+        content.OutputWidth = outputWidth;
+        content.OutputHeight = outputHeight;
+        content.Usage = D3D11_VIDEO_USAGE_OPTIMAL_SPEED;
+        if (SUCCEEDED(hr)) hr = videoDevice_->CreateVideoProcessorEnumerator(&content, &videoEnumerator_);
+
+        UINT inputSupport = 0;
+        UINT outputSupport = 0;
+        if (SUCCEEDED(hr)) hr = videoEnumerator_->CheckVideoProcessorFormat(source.Format, &inputSupport);
+        if (SUCCEEDED(hr)) hr = videoEnumerator_->CheckVideoProcessorFormat(DXGI_FORMAT_B8G8R8A8_UNORM, &outputSupport);
+        if (SUCCEEDED(hr) && ((inputSupport & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT) == 0 ||
+                             (outputSupport & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT) == 0)) {
+            hr = MF_E_INVALIDMEDIATYPE;
+        }
+        if (SUCCEEDED(hr)) hr = videoDevice_->CreateVideoProcessor(videoEnumerator_.Get(), 0, &videoProcessor_);
+
+        D3D11_TEXTURE2D_DESC scaled{};
+        scaled.Width = outputWidth;
+        scaled.Height = outputHeight;
+        scaled.MipLevels = 1;
+        scaled.ArraySize = 1;
+        scaled.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        scaled.SampleDesc.Count = 1;
+        scaled.Usage = D3D11_USAGE_DEFAULT;
+        scaled.BindFlags = D3D11_BIND_RENDER_TARGET;
+        if (SUCCEEDED(hr)) hr = device_->CreateTexture2D(&scaled, nullptr, &scaledFrame_);
+
+        D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputView{};
+        outputView.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+        outputView.Texture2D.MipSlice = 0;
+        if (SUCCEEDED(hr)) {
+            hr = videoDevice_->CreateVideoProcessorOutputView(scaledFrame_.Get(), videoEnumerator_.Get(),
+                                                               &outputView, &scaledOutputView_);
+        }
+        if (FAILED(hr)) {
+            error = HResultText(hr);
+            ResetGpuScaler();
+            return false;
+        }
+        gpuScaling_ = true;
+        return true;
+    }
+
+    bool ScaleFrameOnGpu(ID3D11Texture2D* source, std::wstring& error) {
+        if (!gpuScaling_ || !source || !videoDevice_ || !videoContext_ || !videoProcessor_ ||
+            !videoEnumerator_ || !scaledOutputView_) return false;
+        D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputView{};
+        inputView.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+        inputView.Texture2D.MipSlice = 0;
+        inputView.Texture2D.ArraySlice = 0;
+        ComPtr<ID3D11VideoProcessorInputView> input;
+        HRESULT hr = videoDevice_->CreateVideoProcessorInputView(source, videoEnumerator_.Get(), &inputView, &input);
+        const RECT sourceRect{0, 0, static_cast<LONG>(sourceTextureWidth_), static_cast<LONG>(sourceTextureHeight_)};
+        const RECT outputRect{0, 0, static_cast<LONG>(nativeWidth_), static_cast<LONG>(nativeHeight_)};
+        if (SUCCEEDED(hr)) {
+            videoContext_->VideoProcessorSetStreamFrameFormat(videoProcessor_.Get(), 0,
+                                                               D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+            videoContext_->VideoProcessorSetStreamAutoProcessingMode(videoProcessor_.Get(), 0, FALSE);
+            videoContext_->VideoProcessorSetStreamSourceRect(videoProcessor_.Get(), 0, TRUE, &sourceRect);
+            videoContext_->VideoProcessorSetStreamDestRect(videoProcessor_.Get(), 0, TRUE, &outputRect);
+            videoContext_->VideoProcessorSetOutputTargetRect(videoProcessor_.Get(), TRUE, &outputRect);
+            D3D11_VIDEO_PROCESSOR_STREAM stream{};
+            stream.Enable = TRUE;
+            stream.pInputSurface = input.Get();
+            hr = videoContext_->VideoProcessorBlt(videoProcessor_.Get(), scaledOutputView_.Get(), 0, 1, &stream);
+        }
+        if (FAILED(hr)) {
+            error = L"GPU recording scaler: " + HResultText(hr);
+            return false;
+        }
+        return true;
+    }
+
     bool EnsureSurfaces(const D3D11_TEXTURE2D_DESC& source, std::wstring& error) {
-        if (staging_ && nativeWidth_ == source.Width && nativeHeight_ == source.Height && format_ == source.Format) {
+        if (staging_[0] && sourceTextureWidth_ == source.Width && sourceTextureHeight_ == source.Height &&
+            sourceTextureFormat_ == source.Format) {
             return true;
         }
-        staging_.Reset();
+        for (auto& surface : staging_) surface.Reset();
+        ResetGpuScaler();
+        stagingReadIndex_ = 0;
+        stagingWriteIndex_ = 0;
+        pendingStagingCopies_ = 0;
+
+        UINT readbackWidth = source.Width;
+        UINT readbackHeight = source.Height;
+        DXGI_FORMAT readbackFormat = source.Format;
+        if (gpuScalingAllowed_ && requestedHeight_ > 0 && requestedHeight_ < source.Height) {
+            readbackHeight = requestedHeight_;
+            readbackWidth = Even(static_cast<UINT>((static_cast<std::uint64_t>(source.Width) * readbackHeight +
+                                                    source.Height / 2) / source.Height));
+            std::wstring scaleError;
+            if (ConfigureGpuScaler(source, readbackWidth, readbackHeight, scaleError)) {
+                readbackFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+                AppendDiagnosticLog(L"GPU downscale active · " + std::to_wstring(source.Width) + L"x" +
+                                    std::to_wstring(source.Height) + L" -> " + std::to_wstring(readbackWidth) + L"x" +
+                                    std::to_wstring(readbackHeight));
+            } else {
+                gpuScalingAllowed_ = false;
+                readbackWidth = source.Width;
+                readbackHeight = source.Height;
+                readbackFormat = source.Format;
+                AppendDiagnosticLog(L"GPU downscale unavailable; native readback fallback: " + scaleError);
+            }
+        }
 
         D3D11_TEXTURE2D_DESC staging = source;
+        staging.Width = readbackWidth;
+        staging.Height = readbackHeight;
+        staging.Format = readbackFormat;
         staging.MipLevels = 1;
         staging.ArraySize = 1;
         staging.SampleDesc.Count = 1;
@@ -432,22 +856,29 @@ private:
         staging.BindFlags = 0;
         staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         staging.MiscFlags = 0;
-        HRESULT hr = device_->CreateTexture2D(&staging, nullptr, &staging_);
-        if (FAILED(hr)) { error = L"Create recording staging texture: " + HResultText(hr); return false; }
+        HRESULT hr = S_OK;
+        for (auto& surface : staging_) {
+            hr = device_->CreateTexture2D(&staging, nullptr, &surface);
+            if (FAILED(hr)) break;
+        }
+        if (FAILED(hr)) { error = L"Create recording staging textures: " + HResultText(hr); return false; }
 
-        nativeWidth_ = source.Width;
-        nativeHeight_ = source.Height;
-        format_ = source.Format;
+        sourceTextureWidth_ = source.Width;
+        sourceTextureHeight_ = source.Height;
+        sourceTextureFormat_ = source.Format;
+        nativeWidth_ = readbackWidth;
+        nativeHeight_ = readbackHeight;
+        format_ = readbackFormat;
         nativeFrameReady_ = false;
         if (width_ != 0 && height_ != 0 && dibBits_) return true;
 
-        width_ = source.Width;
-        height_ = source.Height;
+        width_ = readbackWidth;
+        height_ = readbackHeight;
 
         BITMAPINFO info{};
         info.bmiHeader.biSize = sizeof(info.bmiHeader);
-        info.bmiHeader.biWidth = static_cast<LONG>(source.Width);
-        info.bmiHeader.biHeight = -static_cast<LONG>(source.Height);
+        info.bmiHeader.biWidth = static_cast<LONG>(width_);
+        info.bmiHeader.biHeight = -static_cast<LONG>(height_);
         info.bmiHeader.biPlanes = 1;
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
@@ -548,34 +979,39 @@ private:
         if (!GetCursorInfo(&cursor) || (cursor.flags & CURSOR_SHOWING) == 0 || !cursor.hCursor) return false;
         if (cursor.ptScreenPos.x < target_.desktopRect.left || cursor.ptScreenPos.x >= target_.desktopRect.right ||
             cursor.ptScreenPos.y < target_.desktopRect.top || cursor.ptScreenPos.y >= target_.desktopRect.bottom) return false;
-        ICONINFO icon{};
-        if (!GetIconInfo(cursor.hCursor, &icon)) return false;
+        if (cursor.hCursor != cachedSystemCursor_) {
+            ICONINFO icon{};
+            if (!GetIconInfo(cursor.hCursor, &icon)) return false;
+            cachedSystemCursor_ = cursor.hCursor;
+            cachedCursorHotspotX_ = icon.xHotspot;
+            cachedCursorHotspotY_ = icon.yHotspot;
+            cachedCursorWidth_ = GetSystemMetrics(SM_CXCURSOR);
+            cachedCursorHeight_ = GetSystemMetrics(SM_CYCURSOR);
+            BITMAP bitmap{};
+            if (icon.hbmColor && GetObjectW(icon.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                cachedCursorWidth_ = bitmap.bmWidth;
+                cachedCursorHeight_ = bitmap.bmHeight;
+            } else if (icon.hbmMask && GetObjectW(icon.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                cachedCursorWidth_ = bitmap.bmWidth;
+                cachedCursorHeight_ = bitmap.bmHeight / 2;
+            }
+            if (icon.hbmColor) DeleteObject(icon.hbmColor);
+            if (icon.hbmMask) DeleteObject(icon.hbmMask);
+        }
         const int desktopWidth = (std::max)(1L, target_.desktopRect.right - target_.desktopRect.left);
         const int desktopHeight = (std::max)(1L, target_.desktopRect.bottom - target_.desktopRect.top);
         const double scaleX = static_cast<double>(contentRect_.right - contentRect_.left) / desktopWidth;
         const double scaleY = static_cast<double>(contentRect_.bottom - contentRect_.top) / desktopHeight;
-        BITMAP bitmap{};
-        int nativeCursorWidth = GetSystemMetrics(SM_CXCURSOR);
-        int nativeCursorHeight = GetSystemMetrics(SM_CYCURSOR);
-        if (icon.hbmColor && GetObjectW(icon.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-            nativeCursorWidth = bitmap.bmWidth;
-            nativeCursorHeight = bitmap.bmHeight;
-        } else if (icon.hbmMask && GetObjectW(icon.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-            nativeCursorWidth = bitmap.bmWidth;
-            nativeCursorHeight = bitmap.bmHeight / 2;
-        }
-        const int cursorWidth = (std::max)(1, static_cast<int>(nativeCursorWidth * scaleX));
-        const int cursorHeight = (std::max)(1, static_cast<int>(nativeCursorHeight * scaleY));
+        const int cursorWidth = (std::max)(1, static_cast<int>(cachedCursorWidth_ * scaleX));
+        const int cursorHeight = (std::max)(1, static_cast<int>(cachedCursorHeight_ * scaleY));
         const int x = contentRect_.left + static_cast<int>((cursor.ptScreenPos.x - target_.desktopRect.left) * scaleX) -
-                      static_cast<int>(icon.xHotspot * scaleX);
+                      static_cast<int>(cachedCursorHotspotX_ * scaleX);
         const int y = contentRect_.top + static_cast<int>((cursor.ptScreenPos.y - target_.desktopRect.top) * scaleY) -
-                      static_cast<int>(icon.yHotspot * scaleY);
+                      static_cast<int>(cachedCursorHotspotY_ * scaleY);
         BackupCursorBackground(x, y, x + cursorWidth, y + cursorHeight);
         const bool drawn = DrawIconEx(dibDc_, x, y, cursor.hCursor, cursorWidth, cursorHeight,
                                       0, nullptr, DI_NORMAL) != FALSE;
         GdiFlush();
-        if (icon.hbmColor) DeleteObject(icon.hbmColor);
-        if (icon.hbmMask) DeleteObject(icon.hbmMask);
         return drawn;
     }
 
@@ -647,17 +1083,30 @@ private:
     }
 
     void ResetCaptureObjects() {
-        staging_.Reset();
+        for (auto& surface : staging_) surface.Reset();
+        nativeCopy_.Reset();
+        nativeCopyStaging_.Reset();
+        nativeCopyDesc_ = {};
+        nativeCopyValid_ = false;
+        ResetGpuScaler();
+        stagingReadIndex_ = 0;
+        stagingWriteIndex_ = 0;
+        pendingStagingCopies_ = 0;
         duplication_.Reset();
         context_.Reset();
         device_.Reset();
         target_ = {};
         nativeWidth_ = nativeHeight_ = 0;
+        sourceTextureWidth_ = sourceTextureHeight_ = 0;
+        sourceTextureFormat_ = DXGI_FORMAT_UNKNOWN;
         format_ = DXGI_FORMAT_UNKNOWN;
         nativeFrameReady_ = false;
         pointerShape_.clear();
         pointerShapeInfo_ = {};
         pointerVisible_ = false;
+        cachedSystemCursor_ = nullptr;
+        cachedCursorHotspotX_ = cachedCursorHotspotY_ = 0;
+        cachedCursorWidth_ = cachedCursorHeight_ = 0;
     }
 
     void Reset() {
@@ -672,6 +1121,11 @@ private:
         cursorBackupRect_ = {};
         cursorBackupValid_ = false;
         contentRect_ = {};
+        captureDesktopRect_ = {};
+        captureMonitor_ = nullptr;
+        captureDeviceName_.clear();
+        captureAdapterName_.clear();
+        lastCaptureError_.clear();
         hasFrame_ = false;
         blackFrameCount_ = 0;
         blackFallbacks_ = 0;
@@ -680,13 +1134,24 @@ private:
         preferLegacyDuplication_ = false;
         usingModernDuplication_ = false;
         cursorRenderLogged_ = false;
+        gpuScalingAllowed_ = true;
     }
 
     DisplayTarget target_;
     ComPtr<ID3D11Device> device_;
     ComPtr<ID3D11DeviceContext> context_;
     ComPtr<IDXGIOutputDuplication> duplication_;
-    ComPtr<ID3D11Texture2D> staging_;
+    std::array<ComPtr<ID3D11Texture2D>, 3> staging_;
+    ComPtr<ID3D11VideoDevice> videoDevice_;
+    ComPtr<ID3D11VideoContext> videoContext_;
+    ComPtr<ID3D11VideoProcessorEnumerator> videoEnumerator_;
+    ComPtr<ID3D11VideoProcessor> videoProcessor_;
+    ComPtr<ID3D11Texture2D> scaledFrame_;
+    ComPtr<ID3D11VideoProcessorOutputView> scaledOutputView_;
+    ComPtr<ID3D11Texture2D> nativeCopy_;
+    ComPtr<ID3D11Texture2D> nativeCopyStaging_;
+    D3D11_TEXTURE2D_DESC nativeCopyDesc_{};
+    bool nativeCopyValid_ = false;
     HDC dibDc_ = nullptr;
     HBITMAP dib_ = nullptr;
     HGDIOBJ dibOld_ = nullptr;
@@ -695,15 +1160,28 @@ private:
     UINT height_ = 0;
     UINT nativeWidth_ = 0;
     UINT nativeHeight_ = 0;
+    UINT sourceTextureWidth_ = 0;
+    UINT sourceTextureHeight_ = 0;
     DXGI_FORMAT format_ = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT sourceTextureFormat_ = DXGI_FORMAT_UNKNOWN;
     std::vector<BYTE> sourceFrame_;
     std::vector<BYTE> cursorBackup_;
     std::vector<BYTE> pointerShape_;
     DXGI_OUTDUPL_POINTER_SHAPE_INFO pointerShapeInfo_{};
     POINT pointerPosition_{};
     RECT contentRect_{};
+    RECT captureDesktopRect_{};
+    HMONITOR captureMonitor_ = nullptr;
+    std::wstring captureDeviceName_;
+    std::wstring captureAdapterName_;
+    std::wstring lastCaptureError_;
     int requestedIndex_ = 0;
+    UINT requestedHeight_ = 0;
+    CapturePriority priority_ = CapturePriority::Balanced;
     ULONGLONG nextReconnectTick_ = 0;
+    std::size_t stagingReadIndex_ = 0;
+    std::size_t stagingWriteIndex_ = 0;
+    std::size_t pendingStagingCopies_ = 0;
     bool hasFrame_ = false;
     bool nativeFrameReady_ = false;
     bool recovering_ = false;
@@ -712,7 +1190,14 @@ private:
     bool preferLegacyDuplication_ = false;
     bool usingModernDuplication_ = false;
     bool pointerVisible_ = false;
+    bool gpuScaling_ = false;
+    bool gpuScalingAllowed_ = true;
     bool cursorRenderLogged_ = false;
+    HCURSOR cachedSystemCursor_ = nullptr;
+    DWORD cachedCursorHotspotX_ = 0;
+    DWORD cachedCursorHotspotY_ = 0;
+    int cachedCursorWidth_ = 0;
+    int cachedCursorHeight_ = 0;
     bool cursorBackupValid_ = false;
     RECT cursorBackupRect_{};
 };
@@ -845,8 +1330,13 @@ class Mp4Writer {
 public:
     bool Open(const std::wstring& path, UINT sourceWidth, UINT sourceHeight,
               UINT outputWidth, UINT outputHeight, int fps, int bitrateMbps,
-              VideoCodec codec, AudioMixer* audio, std::wstring& error) {
+              VideoCodec codec, AudioMixer* audio, const AppSettings& tuning, std::wstring& error) {
         Close(nullptr);
+        priority_ = tuning.capturePriority;
+        rateControl_ = tuning.videoRateControl;
+        effort_ = tuning.videoEncoderEffort;
+        quality_ = tuning.videoQuality;
+        keyframeSeconds_ = tuning.keyframeSeconds;
         sourceWidth_ = sourceWidth;
         sourceHeight_ = sourceHeight;
         fps_ = fps;
@@ -856,20 +1346,26 @@ public:
 
         ComPtr<IMFAttributes> attributes;
         HRESULT hr = MFCreateAttributes(&attributes, 5);
-        if (SUCCEEDED(hr)) hr = attributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
-        if (SUCCEEDED(hr)) hr = attributes->SetUINT32(MF_LOW_LATENCY, TRUE);
+        // "CPU priority" deliberately refuses the hardware encoder so the GPU is
+        // left entirely to the game; Media Foundation then falls back to its
+        // software encoder. Every other mode keeps the hardware path.
+        const BOOL allowHardwareEncoder = priority_ != CapturePriority::Cpu ? TRUE : FALSE;
+        if (SUCCEEDED(hr)) hr = attributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, allowHardwareEncoder);
+        // File recording benefits from encoder pipelining. Low-latency mode is
+        // meant for calls/streaming and makes WriteSample block the capture loop
+        // more often, which shows up as frametime spikes in games.
+        if (SUCCEEDED(hr)) hr = attributes->SetUINT32(MF_LOW_LATENCY, FALSE);
         // Preserve sink-writer backpressure so raw BGRA frames cannot build an
         // unbounded queue when the encoder or disk is briefly slower than capture.
         if (SUCCEEDED(hr)) hr = attributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, FALSE);
-        if (SUCCEEDED(hr)) hr = attributes->SetGUID(MF_TRANSCODE_CONTAINERTYPE, MFTranscodeContainerType_MPEG4);
+        const VideoCodecProfile& profile = CodecProfile(codec);
+        if (SUCCEEDED(hr)) hr = attributes->SetGUID(MF_TRANSCODE_CONTAINERTYPE, profile.container);
         if (SUCCEEDED(hr)) hr = MFCreateSinkWriterFromURL(path.c_str(), nullptr, attributes.Get(), &writer_);
-        if (FAILED(hr)) { error = L"Create MP4 writer: " + HResultText(hr); return false; }
+        if (FAILED(hr)) { error = L"Create video writer: " + HResultText(hr); return false; }
 
         ComPtr<IMFMediaType> output;
-        const GUID& videoSubtype = codec == VideoCodec::Hevc ? MFVideoFormat_HEVC :
-                                   codec == VideoCodec::Av1 ? MFVideoFormat_AV1 : MFVideoFormat_H264;
-        const wchar_t* codecName = codec == VideoCodec::Hevc ? L"HEVC / H.265" :
-                                   codec == VideoCodec::Av1 ? L"AV1" : L"H.264";
+        const GUID& videoSubtype = profile.subtype;
+        const wchar_t* codecName = profile.name;
         hr = MFCreateMediaType(&output);
         if (SUCCEEDED(hr)) hr = output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
         if (SUCCEEDED(hr)) hr = output->SetGUID(MF_MT_SUBTYPE, videoSubtype);
@@ -897,6 +1393,8 @@ public:
         if (SUCCEEDED(hr)) hr = writer_->SetInputMediaType(videoStream_, input.Get(), nullptr);
         if (FAILED(hr)) { error = L"Configure desktop frame input: " + HResultText(hr); return false; }
 
+        ApplyEncoderTuning();
+
         hasAudio_ = false;
         if (audio_) {
             std::wstring audioError;
@@ -913,6 +1411,49 @@ public:
         frameIndex_ = 0;
         open_ = true;
         return true;
+    }
+
+    // Rate control, quality and GOP length are encoder-side knobs, reachable only
+    // once the stream exists. Every one of these is optional: hardware encoders
+    // vary wildly in what they implement, so a rejected property is left at the
+    // driver's default instead of failing the recording.
+    void ApplyEncoderTuning() {
+        if (!writer_) return;
+        ComPtr<ICodecAPI> codec;
+        if (FAILED(writer_->GetServiceForStream(videoStream_, GUID_NULL, IID_PPV_ARGS(&codec))) || !codec) {
+            return;
+        }
+        const auto trySet = [&codec](const GUID& property, ULONG value) {
+            VARIANT variant{};
+            variant.vt = VT_UI4;
+            variant.ulVal = value;
+            codec->SetValue(&property, &variant);
+        };
+
+        switch (rateControl_) {
+            case VideoRateControl::Cbr:
+                trySet(CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
+                break;
+            case VideoRateControl::Quality:
+                trySet(CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_Quality);
+                trySet(CODECAPI_AVEncCommonQuality, static_cast<ULONG>((std::max)(1, (std::min)(100, quality_))));
+                break;
+            case VideoRateControl::Vbr:
+            default:
+                trySet(CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_UnconstrainedVBR);
+                break;
+        }
+
+        // 0-100, where 100 is "spend the most time for the best picture".
+        const ULONG effort = effort_ == VideoEncoderEffort::Speed ? 0u :
+                             effort_ == VideoEncoderEffort::Quality ? 100u : 50u;
+        trySet(CODECAPI_AVEncCommonQualityVsSpeed, effort);
+
+        // A shorter GOP costs bitrate but makes seeking and clipping far nicer,
+        // which matters for Replay clips people cut up afterwards.
+        if (keyframeSeconds_ > 0 && fps_ > 0) {
+            trySet(CODECAPI_AVEncMPVGOPSize, static_cast<ULONG>(keyframeSeconds_ * fps_));
+        }
     }
 
     bool WriteVideo(const BYTE* bgra, std::wstring& error) {
@@ -975,6 +1516,11 @@ private:
     DWORD audioStream_ = 0;
     UINT sourceWidth_ = 0;
     UINT sourceHeight_ = 0;
+    CapturePriority priority_ = CapturePriority::Balanced;
+    VideoRateControl rateControl_ = VideoRateControl::Vbr;
+    VideoEncoderEffort effort_ = VideoEncoderEffort::Balanced;
+    int quality_ = 70;
+    int keyframeSeconds_ = 2;
     int fps_ = 60;
     LONGLONG frameDuration_ = kHundredNsPerSecond / 60;
     std::uint64_t frameIndex_ = 0;
@@ -989,7 +1535,8 @@ struct ReplaySegment {
     std::uint64_t durationMs = 0;
 };
 
-bool MergeMp4Segments(const std::vector<std::wstring>& paths, const std::wstring& outputPath, std::wstring& error) {
+bool MergeVideoSegments(const std::vector<std::wstring>& paths, const std::wstring& outputPath,
+                        VideoCodec codec, std::wstring& error) {
     if (paths.empty()) return false;
     constexpr DWORD kFirstVideo = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
     constexpr DWORD kFirstAudio = static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM);
@@ -1006,7 +1553,7 @@ bool MergeMp4Segments(const std::vector<std::wstring>& paths, const std::wstring
 
     ComPtr<IMFAttributes> attributes;
     MFCreateAttributes(&attributes, 1);
-    attributes->SetGUID(MF_TRANSCODE_CONTAINERTYPE, MFTranscodeContainerType_MPEG4);
+    attributes->SetGUID(MF_TRANSCODE_CONTAINERTYPE, CodecProfile(codec).container);
     ComPtr<IMFSinkWriter> writer;
     hr = MFCreateSinkWriterFromURL(outputPath.c_str(), nullptr, attributes.Get(), &writer);
     DWORD videoOutput = 0;
@@ -1016,7 +1563,7 @@ bool MergeMp4Segments(const std::vector<std::wstring>& paths, const std::wstring
     if (SUCCEEDED(hr) && hasAudio) hr = writer->AddStream(audioType.Get(), &audioOutput);
     if (SUCCEEDED(hr) && hasAudio) hr = writer->SetInputMediaType(audioOutput, audioType.Get(), nullptr);
     if (SUCCEEDED(hr)) hr = writer->BeginWriting();
-    if (FAILED(hr)) { error = L"Create replay MP4: " + HResultText(hr); return false; }
+    if (FAILED(hr)) { error = L"Create replay clip: " + HResultText(hr); return false; }
 
     LONGLONG timelineBase = 0;
     for (const auto& path : paths) {
@@ -1055,7 +1602,7 @@ bool MergeMp4Segments(const std::vector<std::wstring>& paths, const std::wstring
     }
     if (SUCCEEDED(hr)) hr = writer->Finalize();
     if (FAILED(hr)) {
-        error = L"Assemble replay MP4: " + HResultText(hr);
+        error = L"Assemble replay clip: " + HResultText(hr);
         DeleteFileW(outputPath.c_str());
         return false;
     }
@@ -1064,6 +1611,7 @@ bool MergeMp4Segments(const std::vector<std::wstring>& paths, const std::wstring
 
 struct ActiveSession {
     enum class Mode { Idle, Recording, Replay } mode = Mode::Idle;
+    std::uint64_t generation = 0;
     AppSettings settings;
     DesktopRecorderSource source;
     std::unique_ptr<AudioMixer> audio;
@@ -1167,17 +1715,29 @@ bool RecordingEngine::Queue(Command command) {
     return true;
 }
 
-bool RecordingEngine::StartRecording(const AppSettings& settings) {
+bool RecordingEngine::StartRecording(const AppSettings& settings, std::uint64_t* sessionGeneration) {
+    if (sessionGeneration) *sessionGeneration = 0;
     if (busy_.exchange(true, std::memory_order_acq_rel)) return false;
     previewFps_.store((std::max)(1, (std::min)(60, settings.previewFps)), std::memory_order_release);
-    if (!Queue(Command{CommandType::StartRecording, settings})) { busy_.store(false); return false; }
+    std::uint64_t generation = nextSessionGeneration_.fetch_add(1, std::memory_order_relaxed);
+    if (generation == 0) generation = nextSessionGeneration_.fetch_add(1, std::memory_order_relaxed);
+    Command command{CommandType::StartRecording, settings};
+    command.sessionGeneration = generation;
+    if (!Queue(std::move(command))) { busy_.store(false); return false; }
+    if (sessionGeneration) *sessionGeneration = generation;
     return true;
 }
 
-bool RecordingEngine::StartReplayBuffer(const AppSettings& settings) {
+bool RecordingEngine::StartReplayBuffer(const AppSettings& settings, std::uint64_t* sessionGeneration) {
+    if (sessionGeneration) *sessionGeneration = 0;
     if (busy_.exchange(true, std::memory_order_acq_rel)) return false;
     previewFps_.store((std::max)(1, (std::min)(60, settings.previewFps)), std::memory_order_release);
-    if (!Queue(Command{CommandType::StartReplay, settings})) { busy_.store(false); return false; }
+    std::uint64_t generation = nextSessionGeneration_.fetch_add(1, std::memory_order_relaxed);
+    if (generation == 0) generation = nextSessionGeneration_.fetch_add(1, std::memory_order_relaxed);
+    Command command{CommandType::StartReplay, settings};
+    command.sessionGeneration = generation;
+    if (!Queue(std::move(command))) { busy_.store(false); return false; }
+    if (sessionGeneration) *sessionGeneration = generation;
     return true;
 }
 
@@ -1239,10 +1799,12 @@ void RecordingEngine::PostCaptureEvent(EngineEvent event) const {
 
 void RecordingEngine::ThreadMain() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    // Never outrank the game's render threads. If the machine is saturated we
+    // prefer a repeated recording frame over stuttering the foreground game.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
     DWORD mmcssTaskIndex = 0;
     HANDLE mmcssHandle = AvSetMmThreadCharacteristicsW(L"Capture", &mmcssTaskIndex);
-    if (mmcssHandle) AvSetMmThreadPriority(mmcssHandle, AVRT_PRIORITY_HIGH);
+    if (mmcssHandle) AvSetMmThreadPriority(mmcssHandle, AVRT_PRIORITY_NORMAL);
     const HRESULT mfResult = MFStartup(MF_VERSION);
     if (FAILED(mfResult)) {
         PostEvent({RecordingEventType::Error, L"Media Foundation startup failed: " + HResultText(mfResult)});
@@ -1255,9 +1817,21 @@ void RecordingEngine::ThreadMain() {
     ActiveSession session;
     bool shutdown = false;
 
+    auto postGenerationEvent = [&](RecordingEvent event, std::uint64_t generation, bool replaySession) {
+        event.sessionGeneration = generation;
+        event.replaySession = replaySession;
+        PostEvent(std::move(event));
+    };
+
+    auto postSessionEvent = [&](RecordingEvent event) {
+        postGenerationEvent(std::move(event), session.generation,
+                            session.mode == ActiveSession::Mode::Replay);
+    };
+
     auto resetSessionMetadata = [&]() {
         session.source.Release();
         session.mode = ActiveSession::Mode::Idle;
+        session.generation = 0;
         session.settings = {};
         session.audio.reset();
         session.currentPath.clear();
@@ -1280,11 +1854,12 @@ void RecordingEngine::ThreadMain() {
                             outputWidth, outputHeight);
         const bool opened = session.writer.Open(path, session.source.Width(), session.source.Height(), outputWidth, outputHeight,
                                                 session.settings.recordingFps, session.settings.recordingBitrateMbps,
-                                                session.settings.videoCodec, session.audio.get(), error);
+                                                session.settings.videoCodec, session.audio.get(),
+                                                session.settings, error);
         const std::wstring audioWarning = session.writer.TakeAudioWarning();
         if (!audioWarning.empty()) {
             AppendDiagnosticLog(audioWarning);
-            PostEvent({RecordingEventType::AudioWarning, audioWarning});
+            postSessionEvent({RecordingEventType::AudioWarning, audioWarning});
         }
         return opened;
     };
@@ -1301,7 +1876,7 @@ void RecordingEngine::ThreadMain() {
         }
         if (!audioWarning.empty()) {
             AppendDiagnosticLog(L"Audio mixer warning: " + audioWarning);
-            PostEvent({RecordingEventType::AudioWarning, audioWarning});
+            postSessionEvent({RecordingEventType::AudioWarning, audioWarning});
         }
     };
 
@@ -1324,47 +1899,62 @@ void RecordingEngine::ThreadMain() {
             }
         }
         return (std::filesystem::path(cache) /
-                (segmentPrefix + std::to_wstring(++session.segmentSerial) + L".mp4")).wstring();
+                (segmentPrefix + std::to_wstring(++session.segmentSerial) +
+                 CodecProfile(session.settings.videoCodec).extension)).wstring();
     };
 
-    auto startSession = [&](ActiveSession::Mode mode, const AppSettings& settings) {
+    auto startSession = [&](ActiveSession::Mode mode, const AppSettings& settings, std::uint64_t generation) {
         resetSessionMetadata();
         session.mode = mode;
+        session.generation = generation;
         session.settings = settings;
         session.settings.recordingFps = (std::max)(1, (std::min)(240, session.settings.recordingFps));
         session.settings.recordingBitrateMbps = (std::max)(1, (std::min)(200, session.settings.recordingBitrateMbps));
         session.settings.replaySeconds = (std::max)(5, (std::min)(3600, session.settings.replaySeconds));
         session.settings.previewFps = (std::max)(1, (std::min)(60, session.settings.previewFps));
         EnsureDirectoryExists(session.settings.recordingDirectory.empty() ? GetDefaultRecordingDirectory() : session.settings.recordingDirectory);
-        PostEvent({RecordingEventType::Starting, mode == ActiveSession::Mode::Replay ? L"Starting replay buffer…" : L"Starting recorder…"});
+        postSessionEvent({RecordingEventType::Starting, mode == ActiveSession::Mode::Replay ? L"Starting replay buffer…" : L"Starting recorder…"});
 
         std::wstring error;
-        if (!session.source.Initialize(session.settings.recordingMonitorIndex, error)) {
+        if (!session.source.Initialize(session.settings.recordingMonitorIndex,
+                                       session.settings.recordingHeight,
+                                       session.settings.capturePriority, error)) {
+            postGenerationEvent({RecordingEventType::Error, error}, generation,
+                                mode == ActiveSession::Mode::Replay);
             resetSessionMetadata();
             busy_.store(false, std::memory_order_release);
-            PostEvent({RecordingEventType::Error, error});
             return;
         }
         AppendDiagnosticLog(L"Recorder source ready: " + session.source.Description());
         prepareAudio();
         const std::wstring directory = session.settings.recordingDirectory.empty() ? GetDefaultRecordingDirectory() : session.settings.recordingDirectory;
-        session.currentPath = mode == ActiveSession::Mode::Replay ? nextReplayPath() : TimestampedPath(directory, L"Recording");
+        session.currentPath = mode == ActiveSession::Mode::Replay
+            ? nextReplayPath()
+            : TimestampedPath(directory, L"Recording", session.settings.videoCodec);
         if (!openWriter(session.currentPath, error)) {
             session.writer.Close(nullptr);
             RemoveReplaySegments(session);
+            postGenerationEvent({RecordingEventType::Error, error}, generation,
+                                mode == ActiveSession::Mode::Replay);
             resetSessionMetadata();
             busy_.store(false, std::memory_order_release);
-            PostEvent({RecordingEventType::Error, error});
             return;
         }
         session.sessionStarted = session.segmentStarted = session.lastStats = GetTickCount64();
         SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
         if (mode == ActiveSession::Mode::Recording) {
             recording_.store(true, std::memory_order_release);
-            PostEvent({RecordingEventType::RecordingStarted, session.source.Description(), session.currentPath});
+            postSessionEvent({RecordingEventType::RecordingStarted, session.source.Description(), session.currentPath});
         } else {
             replay_.store(true, std::memory_order_release);
-            PostEvent({RecordingEventType::ReplayStarted, session.source.Description()});
+            postSessionEvent({RecordingEventType::ReplayStarted, session.source.Description()});
+        }
+        if (session.source.IsRecovering()) {
+            session.sourceRecovering = true;
+            const std::wstring detail = session.source.RecoveryDetail().empty()
+                ? L"Fullscreen capture is unavailable; recording a recovery frame and retrying automatically…"
+                : session.source.RecoveryDetail() + L" · retrying automatically…";
+            postSessionEvent({RecordingEventType::Recovering, detail});
         }
     };
 
@@ -1375,6 +1965,7 @@ void RecordingEngine::ThreadMain() {
         const std::uint64_t elapsed = GetTickCount64() - session.sessionStarted;
         const std::uint64_t frames = session.totalFrames;
         const std::uint64_t dropped = session.droppedFrames;
+        const std::uint64_t generation = session.generation;
         std::wstring error;
         session.writer.Close(&error);
         if (previousMode == ActiveSession::Mode::Recording) {
@@ -1387,13 +1978,18 @@ void RecordingEngine::ThreadMain() {
         resetSessionMetadata();
         busy_.store(false, std::memory_order_release);
         if (!postStatus) return;
+        if (previousMode == ActiveSession::Mode::Recording) {
+            postGenerationEvent({RecordingEventType::RecordingStopped, L"Recording stopped · finalization complete"},
+                                generation, false);
+        }
         if (!error.empty()) {
-            PostEvent({RecordingEventType::Error, error});
+            postGenerationEvent({RecordingEventType::Error, error}, generation,
+                                previousMode == ActiveSession::Mode::Replay);
         } else if (previousMode == ActiveSession::Mode::Recording) {
-            PostEvent({RecordingEventType::RecordingSaved, L"Recording saved", finishedPath,
-                       elapsed, frames, dropped});
+            postGenerationEvent({RecordingEventType::RecordingSaved, L"Recording saved", finishedPath,
+                                 elapsed, frames, dropped}, generation, false);
         } else {
-            PostEvent({RecordingEventType::ReplayStopped, L"Replay buffer stopped"});
+            postGenerationEvent({RecordingEventType::ReplayStopped, L"Replay buffer stopped"}, generation, true);
         }
     };
 
@@ -1421,8 +2017,9 @@ void RecordingEngine::ThreadMain() {
         if (session.mode != ActiveSession::Mode::Replay) return;
         std::wstring error;
         if (!rotateReplay(error)) {
+            const std::uint64_t generation = session.generation;
             closeSession(false);
-            PostEvent({RecordingEventType::Error, error});
+            postGenerationEvent({RecordingEventType::Error, error}, generation, true);
             return;
         }
         std::vector<std::wstring> selected;
@@ -1436,47 +2033,84 @@ void RecordingEngine::ThreadMain() {
         std::reverse(selected.begin(), selected.end());
         const std::wstring directory = session.settings.recordingDirectory.empty() ? GetDefaultRecordingDirectory() : session.settings.recordingDirectory;
         const std::wstring prefix = channelId_ > 0 ? L"Replay_Monitor_" + std::to_wstring(channelId_) : L"Replay";
-        const std::wstring output = TimestampedPath(directory, prefix.c_str());
-        bool saved = MergeMp4Segments(selected, output, error);
+        const std::wstring output = TimestampedPath(directory, prefix.c_str(), session.settings.videoCodec);
+        bool saved = MergeVideoSegments(selected, output, session.settings.videoCodec, error);
         if (!saved && !selected.empty()) {
             saved = CopyFileW(selected.back().c_str(), output.c_str(), FALSE) != FALSE;
             if (saved) error.clear();
         }
-        if (saved) PostEvent({RecordingEventType::ReplaySaved, L"Replay saved", output, total});
-        else PostEvent({RecordingEventType::Error, error.empty() ? L"Replay could not be saved" : error});
+        if (saved) {
+            // A successful save is a checkpoint. Discard the interim writer opened
+            // before the merge and create a fresh video+audio timeline after it. This
+            // prevents merge time from appearing as a jump in the next rolling window.
+            // If merging fails we deliberately keep the segments, allowing a retry.
+            std::wstring restartError;
+            session.writer.Close(&restartError);
+            DeleteFileW(session.currentPath.c_str());
+            for (const auto& segment : session.segments) DeleteFileW(segment.path.c_str());
+            session.segments.clear();
+            session.currentPath = nextReplayPath();
+            prepareAudio();
+            if (!restartError.empty() || !openWriter(session.currentPath, restartError)) {
+                const std::uint64_t generation = session.generation;
+                postSessionEvent({RecordingEventType::ReplaySaved, L"Replay saved · buffer restart failed", output, 0, 0, 0});
+                closeSession(false);
+                postGenerationEvent({RecordingEventType::Error,
+                                     restartError.empty() ? L"Replay buffer could not restart after Save" : restartError},
+                                    generation, true);
+                return;
+            }
+            session.sessionStarted = session.segmentStarted = GetTickCount64();
+            session.totalFrames = 0;
+            session.droppedFrames = 0;
+            session.lastStats = session.segmentStarted;
+            postSessionEvent({RecordingEventType::ReplaySaved, L"Replay saved · new buffer started at 0:00", output, 0, 0, 0});
+        } else {
+            postSessionEvent({RecordingEventType::Error, error.empty() ? L"Replay could not be saved" : error});
+        }
     };
 
     auto saveScreenshot = [&](const AppSettings& settings) {
         if (session.mode == ActiveSession::Mode::Idle) return;
         std::wstring error;
         session.source.AcquireLatest(0, error);
-        const BYTE* pixels = session.source.ReadFrame(false, error);
-        if (!pixels) {
-            PostCaptureEvent({EngineEventType::Error, CaptureMode::ActiveDisplay,
-                              error.empty() ? L"The recorder has no fullscreen frame yet" : error});
-            return;
+        // Prefer the native-resolution snapshot over the encoder-sized DIB so a
+        // downscaled replay/recording session still saves full-quality screenshots.
+        FrameBuffer native;
+        const bool nativeSnapshot = session.source.ReadNativeSnapshot(native);
+        const BYTE* pixels = nullptr;
+        if (!nativeSnapshot) {
+            pixels = session.source.ReadFrame(false, error);
+            if (!pixels) {
+                pixels = session.source.EnterRecovery(error.empty()
+                    ? L"The recorder has no fullscreen frame yet" : error);
+            }
+            if (!pixels) {
+                PostCaptureEvent({EngineEventType::Error, CaptureMode::ActiveDisplay,
+                                  error.empty() ? L"The recorder has no fullscreen frame yet" : error});
+                return;
+            }
         }
 
-        SYSTEMTIME time{};
-        GetLocalTime(&time);
         const std::wstring directory = settings.saveDirectory.empty()
             ? GetDefaultScreenshotDirectory() : settings.saveDirectory;
         EnsureDirectoryExists(directory);
-        const std::wstring filename = MakeScreenshotFilename(L"Screenshot", time.wYear, time.wMonth, time.wDay,
-                                                              time.wHour, time.wMinute, time.wSecond,
-                                                              time.wMilliseconds,
-                                                              settings.imageFormat == ImageFormat::Jpeg);
         SaveJob job;
-        job.path = (std::filesystem::path(directory) / filename).wstring();
-        job.width = session.source.Width();
-        job.height = session.source.Height();
+        job.path = MakeChronologicalMediaPath(directory, L"Screenshot",
+                                              settings.imageFormat == ImageFormat::Jpeg ? L".jpg" : L".png");
+        job.width = nativeSnapshot ? native.width : session.source.Width();
+        job.height = nativeSnapshot ? native.height : session.source.Height();
         job.stride = job.width * 4;
         job.format = settings.imageFormat;
         job.outputWidth = settings.outputWidth;
         job.outputHeight = settings.outputHeight;
         job.jpegQuality = settings.jpegQuality;
-        job.bgra.resize(static_cast<std::size_t>(job.stride) * job.height);
-        std::memcpy(job.bgra.data(), pixels, job.bgra.size());
+        if (nativeSnapshot) {
+            job.bgra = std::move(native.bgra);
+        } else {
+            job.bgra.resize(static_cast<std::size_t>(job.stride) * job.height);
+            std::memcpy(job.bgra.data(), pixels, job.bgra.size());
+        }
 
         PostCaptureEvent({EngineEventType::Feedback, CaptureMode::ActiveDisplay, L"Fullscreen frame captured",
                           job.path, {}, 0.0, 0.0, session.source.Monitor()});
@@ -1486,7 +2120,10 @@ void RecordingEngine::ThreadMain() {
         event.type = saved ? EngineEventType::Saved : EngineEventType::Error;
         event.mode = CaptureMode::ActiveDisplay;
         event.path = job.path;
-        event.detail = saved ? L"Saved from active recorder" : error;
+        event.detail = saved
+            ? (session.source.IsRecovering() ? L"Saved recovery frame while fullscreen capture reconnects"
+                                             : L"Saved from active recorder")
+            : error;
         event.saveMs = static_cast<double>(GetTickCount64() - started);
         event.monitor = session.source.Monitor();
         PostCaptureEvent(std::move(event));
@@ -1504,7 +2141,22 @@ void RecordingEngine::ThreadMain() {
         }
         std::wstring error;
         session.source.AcquireLatest(0, error);
+        if (!command.drawCursor) {
+            // Prefer the native-resolution snapshot: the DIB path is downscaled to the
+            // encoder size while the replay/recording scaler is active, and upscaling it
+            // back for the region editor made both the preview and the crop blurry.
+            auto native = std::make_shared<FrameBuffer>();
+            if (session.source.ReadNativeSnapshot(*native)) {
+                event.frame = std::move(native);
+                PostCaptureEvent(std::move(event));
+                return;
+            }
+        }
         const BYTE* pixels = session.source.ReadFrame(command.drawCursor, error);
+        if (!pixels) {
+            pixels = session.source.EnterRecovery(error.empty()
+                ? L"The recorder has no live frame yet" : error);
+        }
         if (!pixels) {
             event.detail = error.empty() ? L"The recorder has no live frame yet" : error;
             PostCaptureEvent(std::move(event));
@@ -1522,6 +2174,10 @@ void RecordingEngine::ThreadMain() {
     };
 
     auto postPreview = [&](const BYTE* source, UINT sourceWidth, UINT sourceHeight) {
+        // The preview is already gated on the Luna window being foreground on the
+        // Record page, so it never runs while a game is in front — suppressing it
+        // by capture priority bought nothing and only blanked the preview the user
+        // was actively looking at.
         if (!source ||
             !previewConsumerActive_.load(std::memory_order_acquire) ||
             !IsWindowVisible(notifyWindow_) || IsIconic(notifyWindow_)) return;
@@ -1558,10 +2214,14 @@ void RecordingEngine::ThreadMain() {
         for (auto& command : pending) {
             switch (command.type) {
                 case CommandType::StartRecording:
-                    if (session.mode == ActiveSession::Mode::Idle) startSession(ActiveSession::Mode::Recording, command.settings);
+                    if (session.mode == ActiveSession::Mode::Idle) {
+                        startSession(ActiveSession::Mode::Recording, command.settings, command.sessionGeneration);
+                    }
                     break;
                 case CommandType::StartReplay:
-                    if (session.mode == ActiveSession::Mode::Idle) startSession(ActiveSession::Mode::Replay, command.settings);
+                    if (session.mode == ActiveSession::Mode::Idle) {
+                        startSession(ActiveSession::Mode::Replay, command.settings, command.sessionGeneration);
+                    }
                     break;
                 case CommandType::Stop: closeSession(true); break;
                 case CommandType::SaveReplay: saveReplay(); break;
@@ -1570,8 +2230,8 @@ void RecordingEngine::ThreadMain() {
                         session.source.NotifyDisplayChange();
                         if (!session.sourceRecovering) {
                             session.sourceRecovering = true;
-                            PostEvent({RecordingEventType::Recovering,
-                                       L"Display mode changed; reconnecting fullscreen capture…"});
+                            postSessionEvent({RecordingEventType::Recovering,
+                                              L"Display mode changed; reconnecting fullscreen capture…"});
                         }
                     }
                     break;
@@ -1593,49 +2253,65 @@ void RecordingEngine::ThreadMain() {
                 session.droppedFrames += skipped;
             }
             std::wstring error;
-            if (!session.source.AcquireLatest(0, error) && !error.empty()) {
-                closeSession(false);
-                PostEvent({RecordingEventType::Error, error});
-                continue;
-            }
-            const bool sourceRecovering = session.source.IsRecovering();
+            const bool acquired = session.source.AcquireLatest(0, error);
+            bool sourceRecovering = session.source.IsRecovering() || !acquired;
             if (sourceRecovering != session.sourceRecovering) {
                 session.sourceRecovering = sourceRecovering;
-                PostEvent({sourceRecovering ? RecordingEventType::Recovering : RecordingEventType::Recovered,
-                           sourceRecovering ? L"Display mode changed; reconnecting fullscreen capture…"
-                                            : L"Fullscreen capture reconnected"});
+                postSessionEvent({sourceRecovering ? RecordingEventType::Recovering : RecordingEventType::Recovered,
+                                  sourceRecovering ? (error.empty()
+                                      ? L"Fullscreen capture is unavailable; recording a recovery frame and retrying automatically…"
+                                      : error + L" · recording continues while capture retries…")
+                                                   : L"Fullscreen capture reconnected"});
             }
-            const BYTE* frame = session.source.ReadFrame(session.settings.recordCursor, error);
+            const BYTE* frame = session.source.ReadFrame(session.settings.recordCursor && !sourceRecovering, error);
             if (!frame) {
-                closeSession(false);
-                PostEvent({RecordingEventType::Error, error});
+                frame = session.source.EnterRecovery(error.empty()
+                    ? L"Fullscreen frame readback is temporarily unavailable" : error);
+                sourceRecovering = true;
+            }
+            const bool recoveryAfterRead = session.source.IsRecovering();
+            if (recoveryAfterRead != session.sourceRecovering) {
+                session.sourceRecovering = recoveryAfterRead;
+                postSessionEvent({recoveryAfterRead ? RecordingEventType::Recovering : RecordingEventType::Recovered,
+                                  recoveryAfterRead
+                                      ? L"Fullscreen frame readback failed; recording continues while capture retries…"
+                                      : L"Fullscreen capture reconnected"});
+            }
+            if (!frame) {
+                // An allocation-level failure is exceptionally rare. Preserve the session and
+                // timeline; the next pass will retry instead of finalizing the video/replay.
+                session.writer.SkipFrames(1);
+                ++session.droppedFrames;
                 continue;
             }
             const int effectivePreviewFps = (std::min)(session.settings.recordingFps,
                                                        previewFps_.load(std::memory_order_acquire));
             const ULONGLONG previewInterval = 1000 / static_cast<ULONGLONG>((std::max)(1, effectivePreviewFps));
-            if (now - session.lastPreview >= previewInterval) {
+            if (now - session.lastPreview >= previewInterval &&
+                (!session.source.LastFrameNearlyBlack() || recoveryAfterRead)) {
                 postPreview(frame, session.source.Width(), session.source.Height());
                 session.lastPreview = now;
             }
             if (!session.writer.WriteVideo(frame, error)) {
+                const std::uint64_t generation = session.generation;
                 closeSession(false);
-                PostEvent({RecordingEventType::Error, error});
+                postGenerationEvent({RecordingEventType::Error, error}, generation, false);
                 continue;
             }
             ++session.totalFrames;
         }
         std::wstring audioError;
         session.writer.DrainAudio(audioError);
-        if (!audioError.empty()) PostEvent({RecordingEventType::AudioWarning, audioError});
+        if (!audioError.empty()) postSessionEvent({RecordingEventType::AudioWarning, audioError});
 
         if (session.mode == ActiveSession::Mode::Replay) {
             const int segmentSeconds = ReplaySegmentSeconds(session.settings.replaySeconds);
             if (now - session.segmentStarted >= static_cast<ULONGLONG>(segmentSeconds) * 1000) {
                 std::wstring rotateError;
                 if (!rotateReplay(rotateError)) {
+                    const std::uint64_t generation = session.generation;
                     closeSession(false);
-                    PostEvent({RecordingEventType::Error, rotateError});
+                    postGenerationEvent({RecordingEventType::Error, rotateError}, generation, true);
                     continue;
                 }
             }
@@ -1643,8 +2319,9 @@ void RecordingEngine::ThreadMain() {
         if (now - session.lastStats >= 500) {
             const std::uint64_t elapsed = now - session.sessionStarted;
             const double fps = elapsed ? static_cast<double>(session.totalFrames) * 1000.0 / elapsed : 0.0;
-            PostEvent({RecordingEventType::Stats, session.mode == ActiveSession::Mode::Replay ? L"Replay buffer" : L"Recording",
-                       session.currentPath, elapsed, session.totalFrames, session.droppedFrames, fps});
+            postSessionEvent({RecordingEventType::Stats,
+                              session.mode == ActiveSession::Mode::Replay ? L"Replay buffer" : L"Recording",
+                              session.currentPath, elapsed, session.totalFrames, session.droppedFrames, fps});
             session.lastStats = now;
         }
 

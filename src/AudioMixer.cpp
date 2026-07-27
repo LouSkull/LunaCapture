@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -124,8 +125,12 @@ public:
         return FinishInitialize(true, error);
     }
 
-    bool InitializeMicrophone(const std::wstring& id, float gain, std::wstring& error) {
+    bool InitializeMicrophone(const std::wstring& id, float gain, int noiseSuppressionPercent,
+                              int noiseGateThresholdDb, std::wstring& error) {
         gain_ = gain;
+        noiseSuppression_ = static_cast<float>((std::max)(0, (std::min)(100, noiseSuppressionPercent))) / 100.0f;
+        noiseGateThreshold_ = std::pow(10.0f, -static_cast<float>((std::max)(20, (std::min)(80, noiseGateThresholdDb))) / 20.0f);
+        microphoneFilter_ = noiseSuppression_ > 0.0f;
         ComPtr<IMMDeviceEnumerator> enumerator;
         HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                       IID_PPV_ARGS(&enumerator));
@@ -157,7 +162,7 @@ public:
                                                   &value, handler.Get(), &operation);
         if (SUCCEEDED(hr)) hr = handler->Wait(client_);
         if (FAILED(hr)) { error = L"Application audio requires Windows 11 / build 20348+: " + HResultText(hr); return false; }
-        return FinishInitialize(true, error);
+        return FinishInitializeLoopback(error);
     }
 
     bool Start(std::wstring& error) {
@@ -173,6 +178,8 @@ public:
         active_ = false;
         samples_.clear();
         sampleOffset_ = 0;
+        nativeStereo_.clear();
+        resamplePos_ = 0.0;
     }
 
     bool Pull(std::wstring& error) {
@@ -186,17 +193,23 @@ public:
             DWORD flags = 0;
             hr = capture_->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
             if (FAILED(hr)) { active_ = false; error = HResultText(hr); return false; }
-            const std::size_t sampleCount = static_cast<std::size_t>(frames) * kMixChannels;
-            const std::size_t oldSize = samples_.size();
-            samples_.resize(oldSize + sampleCount);
-            if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || !data) {
-                std::fill(samples_.begin() + static_cast<std::ptrdiff_t>(oldSize), samples_.end(),
-                          static_cast<std::int16_t>(0));
+            const bool silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || !data;
+            if (nativeConversionNeeded_) {
+                AppendNativeFrames(data, frames, silent);
             } else {
-                std::memcpy(samples_.data() + oldSize, data, sampleCount * sizeof(std::int16_t));
+                const std::size_t sampleCount = static_cast<std::size_t>(frames) * kMixChannels;
+                const std::size_t oldSize = samples_.size();
+                samples_.resize(oldSize + sampleCount);
+                if (silent) {
+                    std::fill(samples_.begin() + static_cast<std::ptrdiff_t>(oldSize), samples_.end(),
+                              static_cast<std::int16_t>(0));
+                } else {
+                    std::memcpy(samples_.data() + oldSize, data, sampleCount * sizeof(std::int16_t));
+                }
             }
             capture_->ReleaseBuffer(frames);
         }
+        if (nativeConversionNeeded_) ResampleAvailable();
         Compact();
         return true;
     }
@@ -207,7 +220,23 @@ public:
         const std::size_t available = samples_.size() > sampleOffset_ ? samples_.size() - sampleOffset_ : 0;
         const std::size_t count = (std::min)(requested, available);
         for (std::size_t i = 0; i < count; ++i) {
-            output[i] += static_cast<float>(samples_[sampleOffset_ + i]) * (gain_ / 32768.0f);
+            float sample = static_cast<float>(samples_[sampleOffset_ + i]) / 32768.0f;
+            if (microphoneFilter_) {
+                const std::size_t channel = i % kMixChannels;
+                // A lightweight first-order high-pass removes desk/air-conditioner
+                // rumble. The smoothed downward expander then attenuates stationary
+                // noise without allocating or adding another audio thread.
+                const float highPassed = 0.987f * (highPassOutput_[channel] + sample - highPassInput_[channel]);
+                highPassInput_[channel] = sample;
+                highPassOutput_[channel] = highPassed;
+                sample = highPassed;
+                envelope_ = (std::max)(std::fabs(sample), envelope_ * 0.995f);
+                const float floorGain = 1.0f - noiseSuppression_;
+                const float targetGain = envelope_ >= noiseGateThreshold_ ? 1.0f : floorGain;
+                gateGain_ += (targetGain - gateGain_) * (targetGain > gateGain_ ? 0.24f : 0.018f);
+                sample *= gateGain_;
+            }
+            output[i] += sample * gain_;
         }
         sampleOffset_ += count;
     }
@@ -228,7 +257,102 @@ private:
         }
         if (SUCCEEDED(hr)) hr = client_->GetService(IID_PPV_ARGS(&capture_));
         if (FAILED(hr)) { error = L"WASAPI 48 kHz mixer input: " + HResultText(hr); return false; }
+        nativeConversionNeeded_ = false;
         return true;
+    }
+
+    // Per-process loopback (ActivateAudioInterfaceAsync with
+    // VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK) rejects AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM /
+    // AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY combined with AUDCLNT_STREAMFLAGS_LOOPBACK with
+    // AUDCLNT_E_INVALID_STREAM_FLAG (0x88890021) -- that combination is only documented as
+    // invalid for loopback streams, but the classic default-device loopback path (FinishInitialize
+    // above) tolerates it in practice while this newer virtual device enforces it strictly. So for
+    // "record this window/app" we take whatever format the engine actually uses (GetMixFormat) and
+    // convert to the mixer's 48 kHz/16-bit stereo format ourselves in Pull()/ResampleAvailable().
+    bool FinishInitializeLoopback(std::wstring& error) {
+        WAVEFORMATEX* nativeFormat = nullptr;
+        HRESULT hr = client_->GetMixFormat(&nativeFormat);
+        if (FAILED(hr) || !nativeFormat) { error = L"WASAPI loopback mix format: " + HResultText(hr); return false; }
+        nativeRate_ = nativeFormat->nSamplesPerSec ? nativeFormat->nSamplesPerSec : kMixRate;
+        nativeChannels_ = nativeFormat->nChannels ? nativeFormat->nChannels : 1;
+        // The shared-mode engine mix format is, in practice, always either 32-bit float or
+        // 16-bit PCM (WAVEFORMATEXTENSIBLE-wrapped or not) -- checking wBitsPerSample avoids
+        // pulling in ksmedia.h just to compare KSDATAFORMAT_SUBTYPE_IEEE_FLOAT.
+        nativeFloat_ = nativeFormat->wBitsPerSample >= 32;
+        const DWORD flags = AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_NOPERSIST;
+        hr = client_->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 0, 0, nativeFormat, nullptr);
+        CoTaskMemFree(nativeFormat);
+        if (SUCCEEDED(hr)) hr = client_->GetService(IID_PPV_ARGS(&capture_));
+        if (FAILED(hr)) { error = L"WASAPI loopback mixer input: " + HResultText(hr); return false; }
+        nativeConversionNeeded_ = true;
+        return true;
+    }
+
+    // Downmixes an engine-native captured packet to interleaved stereo float frames at
+    // nativeRate_, ready for ResampleAvailable() to convert to the mixer's fixed format.
+    void AppendNativeFrames(const BYTE* data, UINT32 frames, bool silent) {
+        const std::size_t oldSize = nativeStereo_.size();
+        nativeStereo_.resize(oldSize + static_cast<std::size_t>(frames) * kMixChannels);
+        if (silent) {
+            std::fill(nativeStereo_.begin() + static_cast<std::ptrdiff_t>(oldSize), nativeStereo_.end(), 0.0f);
+            return;
+        }
+        const UINT32 channels = nativeChannels_;
+        for (UINT32 i = 0; i < frames; ++i) {
+            float left;
+            float right;
+            if (nativeFloat_) {
+                const float* frame = reinterpret_cast<const float*>(data) + static_cast<std::size_t>(i) * channels;
+                left = frame[0];
+                right = channels > 1 ? frame[1] : frame[0];
+            } else {
+                const std::int16_t* frame = reinterpret_cast<const std::int16_t*>(data) +
+                                             static_cast<std::size_t>(i) * channels;
+                left = static_cast<float>(frame[0]) / 32768.0f;
+                right = channels > 1 ? static_cast<float>(frame[1]) / 32768.0f : left;
+            }
+            nativeStereo_[oldSize + static_cast<std::size_t>(i) * kMixChannels] = left;
+            nativeStereo_[oldSize + static_cast<std::size_t>(i) * kMixChannels + 1] = right;
+        }
+    }
+
+    // Converts accumulated native-rate stereo float frames into the mixer's 48 kHz/16-bit
+    // stream, linearly interpolating when nativeRate_ differs from kMixRate. The fractional
+    // read position (resamplePos_) and any not-yet-fully-consumed tail carry across calls so
+    // there's no click or gap at packet boundaries.
+    void ResampleAvailable() {
+        const std::size_t nativeFrames = nativeStereo_.size() / kMixChannels;
+        if (nativeFrames < 2) return;
+        if (nativeRate_ == kMixRate) {
+            const std::size_t oldSize = samples_.size();
+            samples_.resize(oldSize + nativeFrames * kMixChannels);
+            for (std::size_t i = 0; i < nativeFrames * kMixChannels; ++i) {
+                const float clamped = (std::max)(-1.0f, (std::min)(1.0f, nativeStereo_[i]));
+                samples_[oldSize + i] = static_cast<std::int16_t>(clamped * 32767.0f);
+            }
+            nativeStereo_.clear();
+            return;
+        }
+        const double ratio = static_cast<double>(nativeRate_) / static_cast<double>(kMixRate);
+        for (;;) {
+            const std::size_t index = static_cast<std::size_t>(resamplePos_);
+            if (index + 1 >= nativeFrames) break;
+            const double frac = resamplePos_ - static_cast<double>(index);
+            for (UINT32 c = 0; c < kMixChannels; ++c) {
+                const float a = nativeStereo_[index * kMixChannels + c];
+                const float b = nativeStereo_[(index + 1) * kMixChannels + c];
+                const float interpolated = static_cast<float>(a + (b - a) * frac);
+                const float clamped = (std::max)(-1.0f, (std::min)(1.0f, interpolated));
+                samples_.push_back(static_cast<std::int16_t>(clamped * 32767.0f));
+            }
+            resamplePos_ += ratio;
+        }
+        const std::size_t consumedFrames = (std::min)(static_cast<std::size_t>(resamplePos_), nativeFrames);
+        if (consumedFrames > 0) {
+            nativeStereo_.erase(nativeStereo_.begin(),
+                                nativeStereo_.begin() + static_cast<std::ptrdiff_t>(consumedFrames * kMixChannels));
+            resamplePos_ -= static_cast<double>(consumedFrames);
+        }
     }
 
     void Compact() {
@@ -247,7 +371,20 @@ private:
     std::vector<std::int16_t> samples_;
     std::size_t sampleOffset_ = 0;
     float gain_ = 1.0f;
+    float noiseSuppression_ = 0.0f;
+    float noiseGateThreshold_ = 0.00316f;
+    float envelope_ = 0.0f;
+    float gateGain_ = 1.0f;
+    std::array<float, kMixChannels> highPassInput_{};
+    std::array<float, kMixChannels> highPassOutput_{};
+    bool microphoneFilter_ = false;
     bool active_ = false;
+    bool nativeConversionNeeded_ = false;
+    bool nativeFloat_ = false;
+    UINT32 nativeRate_ = kMixRate;
+    UINT32 nativeChannels_ = kMixChannels;
+    std::vector<float> nativeStereo_;
+    double resamplePos_ = 0.0;
 };
 }  // namespace
 
@@ -281,7 +418,8 @@ public:
             if (!input.enabled || input.deviceId.empty()) continue;
             auto source = std::make_unique<AudioSource>();
             std::wstring error;
-            if (source->InitializeMicrophone(input.deviceId, input.volumePercent / 100.0f, error)) {
+            if (source->InitializeMicrophone(input.deviceId, input.volumePercent / 100.0f,
+                                             input.noiseSuppressionPercent, input.noiseGateThresholdDb, error)) {
                 sources_.push_back(std::move(source));
             } else {
                 warnings.push_back(input.name + L": " + error);

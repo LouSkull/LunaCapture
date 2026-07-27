@@ -1,0 +1,804 @@
+﻿// =============================================================================
+//  Luna Capture — TRANSLATION BASE
+//  Every user-facing string in the application, ready to translate.
+// =============================================================================
+//
+//  HOW TO MAKE A TRANSLATION
+//
+//  1. Copy this file and rename it, e.g. luna-russian.luna
+//  2. Change the plugin id below so it does not collide with other plugins,
+//     e.g. "luna.locale.ru-RU"
+//  3. Change the locale name to your language tag, e.g. locale "ru-RU"
+//  4. Translate ONLY the right-hand side of every "..." = "..." pair.
+//     The LEFT side must stay byte-for-byte identical to the English text —
+//     it is the lookup key the host matches against.
+//  5. Save the file as UTF-8 into:
+//         %LOCALAPPDATA%\Luna Capture\Plugins\
+//  6. Open Luna Capture -> Plugins -> Reload, enable the plugin, then use
+//     its Manage menu to activate the locale.
+//
+//  NOTES
+//
+//  * Entries you have not translated yet can stay as they are (English =
+//    English). The file works at any level of completeness, so you can
+//    translate gradually and reload as you go.
+//  * Strings containing {0} or {1} are TEMPLATES. The placeholder is filled in
+//    by the app at runtime (a file name, a monitor number, a count). Keep the
+//    placeholders in your translation; you may reorder them.
+//  * Only these escapes are legal: \n, \t, \\ and \" — keep them intact.
+//  * A locale may hold at most 1024 entries and each string is limited to
+//    512 characters. This file uses 733 entries, leaving room for growth.
+//  * Many strings are short UI labels drawn into fixed-width native controls.
+//    The interface does not reflow, so prefer a translation of similar length
+//    and check it in the app.
+//  * Codec and unit tokens such as "H.264", "AV1", " ms" and " dB" are listed
+//    for completeness — leaving them unchanged is usually correct.
+//
+// =============================================================================
+
+luna 1;
+
+plugin "luna.base.translation" {
+    name        "Translation Base";
+    version     "1.0.0";
+    author      "Luna Capture";
+    description "Every user-facing string in Luna Capture, ready to translate into any language.";
+    requires host_api 5;
+
+    permission localization;
+
+    // Change "en-US" to your language tag, for example "ru-RU", "de-DE", "pt-BR".
+    locale "en-US" {
+
+    // ---------------------------------------------------------------------
+    // Main window, pages, dialogs, status lines and toasts  (632 strings)
+    // ---------------------------------------------------------------------
+    "No screenshots yet" = "No screenshots yet";
+    "quick panel toggle" = "quick panel toggle";
+    "active display screenshot" = "active display screenshot";
+    "all displays screenshot" = "all displays screenshot";
+    "region screenshot" = "region screenshot";
+    "active window screenshot" = "active window screenshot";
+    "record toggle" = "record toggle";
+    "replay save" = "replay save";
+    "save replay for monitor " = "save replay for monitor ";
+    "Unknown time" = "Unknown time";
+    "AV1" = "AV1";
+    "H.264" = "H.264";
+    " · Theme: " = " · Theme: ";
+    "Plugin directory could not be initialized" = "Plugin directory could not be initialized";
+    "Replay buffer resumed" = "Replay buffer resumed";
+    "It was on last time, so Luna Capture turned it back on" = "It was on last time, so Luna Capture turned it back on";
+    "Luna Capture" = "Luna Capture";
+    "Luna Capture 1.0.0.0" = "Luna Capture 1.0.0.0";
+    "Could not decode this image" = "Could not decode this image";
+    "\n" = "\n";
+    "\n\nThis permanently removes the file from disk and cannot be undone." = "\n\nThis permanently removes the file from disk and cannot be undone.";
+    "Delete this recording?" = "Delete this recording?";
+    "Delete this screenshot?" = "Delete this screenshot?";
+    "Fullscreen hotkeys protected" = "Fullscreen hotkeys protected";
+    "Some hotkeys conflict" = "Some hotkeys conflict";
+    "Raw Input / keyboard hook will handle shortcuts owned by the game" = "Raw Input / keyboard hook will handle shortcuts owned by the game";
+    "Change unavailable shortcuts; the fullscreen fallback could not start" = "Change unavailable shortcuts; the fullscreen fallback could not start";
+    "One or more RegisterHotKey routes conflicted; fullscreen Raw Input/hook fallback remains active" = "One or more RegisterHotKey routes conflicted; fullscreen Raw Input/hook fallback remains active";
+    "Hotkey registration conflict and no fullscreen fallback is available" = "Hotkey registration conflict and no fullscreen fallback is available";
+    "Fullscreen hotkeys armed: Raw Input background + low-level hook + RegisterHotKey" = "Fullscreen hotkeys armed: Raw Input background + low-level hook + RegisterHotKey";
+    "Fullscreen hotkeys armed: low-level hook + RegisterHotKey (Raw Input unavailable)" = "Fullscreen hotkeys armed: low-level hook + RegisterHotKey (Raw Input unavailable)";
+    "Raw Input background" = "Raw Input background";
+    "Recording shortcut" = "Recording shortcut";
+    "Press a shortcut to assign it, or press Esc to disable this binding completely." = "Press a shortcut to assign it, or press Esc to disable this binding completely.";
+    "Press a shortcut, or Esc to disable it. Focused-window input is being used." = "Press a shortcut, or Esc to disable it. Focused-window input is being used.";
+    "Fullscreen-safe capture, recording and Quick Panel shortcuts are active" = "Fullscreen-safe capture, recording and Quick Panel shortcuts are active";
+    "Preparing DXGI" = "Preparing DXGI";
+    "Duplicate shortcut" = "Duplicate shortcut";
+    "Each capture mode needs a different shortcut" = "Each capture mode needs a different shortcut";
+    "Shortcut updated" = "Shortcut updated";
+    "Shortcut disabled" = "Shortcut disabled";
+    "This action remains available from Luna Capture and the tray menu" = "This action remains available from Luna Capture and the tray menu";
+    "Audio sources refreshed" = "Audio sources refreshed";
+    " microphones · " = " microphones · ";
+    " application windows" = " application windows";
+    "Open the game/application, then refresh audio sources" = "Open the game/application, then refresh audio sources";
+    "Choose application audio" = "Choose application audio";
+    "Windows did not return an active microphone" = "Windows did not return an active microphone";
+    "Default · " = "Default · ";
+    "Add microphone input" = "Add microphone input";
+    "Muted · 0%" = "Muted · 0%";
+    "Quiet · 50%" = "Quiet · 50%";
+    "Reduced · 75%" = "Reduced · 75%";
+    "Original level · 100%" = "Original level · 100%";
+    "Boost · 125%" = "Boost · 125%";
+    "Strong boost · 150%" = "Strong boost · 150%";
+    "Maximum · 200%" = "Maximum · 200%";
+    "Microphone gain" = "Microphone gain";
+    "Change microphone device" = "Change microphone device";
+    "Noise suppression · " = "Noise suppression · ";
+    "Noise gate · -" = "Noise gate · -";
+    " dB" = " dB";
+    "Reset microphone filters" = "Reset microphone filters";
+    "Device identity and lightweight native filters are saved with your settings" = "Device identity and lightweight native filters are saved with your settings";
+    "Off · untouched microphone" = "Off · untouched microphone";
+    "Light · keyboard ambience" = "Light · keyboard ambience";
+    "Balanced · room noise" = "Balanced · room noise";
+    "Strong · fan and background" = "Strong · fan and background";
+    "Maximum · aggressive gate" = "Maximum · aggressive gate";
+    "Noise suppression" = "Noise suppression";
+    "High-pass cleanup plus a smooth downward expander" = "High-pass cleanup plus a smooth downward expander";
+    "-35 dB · loud room" = "-35 dB · loud room";
+    "-45 dB · strong" = "-45 dB · strong";
+    "-50 dB · balanced" = "-50 dB · balanced";
+    "-60 dB · sensitive" = "-60 dB · sensitive";
+    "-70 dB · very sensitive" = "-70 dB · very sensitive";
+    "Noise gate threshold" = "Noise gate threshold";
+    "Lower dB magnitude opens the microphone less easily" = "Lower dB magnitude opens the microphone less easily";
+    "Choose microphone device" = "Choose microphone device";
+    "background image could not be decoded safely" = "background image could not be decoded safely";
+    "background image must be a local PNG/JPEG/BMP under the plugin folder (max 16 MiB)" = "background image must be a local PNG/JPEG/BMP under the plugin folder (max 16 MiB)";
+    "Plugin reload postponed until the open review dialog closes" = "Plugin reload postponed until the open review dialog closes";
+    "Hot reload · " = "Hot reload · ";
+    "Reloaded · " = "Reloaded · ";
+    "LunaScript reloaded" = "LunaScript reloaded";
+    "Plugin is invalid" = "Plugin is invalid";
+    "Grant permissions and enable this plugin" = "Grant permissions and enable this plugin";
+    "Enable " = "Enable ";
+    "Declared permissions: " = "Declared permissions: ";
+    " · source remains sandboxed" = " · source remains sandboxed";
+    "Plugin changed while permission review was open · review it again" = "Plugin changed while permission review was open · review it again";
+    " enabled" = " enabled";
+    " disabled" = " disabled";
+    "Disable plugin · stop all commands and events" = "Disable plugin · stop all commands and events";
+    "Enable plugin · grant declared permissions" = "Enable plugin · grant declared permissions";
+    "Reset to Luna default theme" = "Reset to Luna default theme";
+    "Activate theme · " = "Activate theme · ";
+    "Activate theme · enable the plugin first" = "Activate theme · enable the plugin first";
+    "Reset interface language to built-in English" = "Reset interface language to built-in English";
+    "Activate language pack · " = "Activate language pack · ";
+    "Activate language pack · enable the plugin first" = "Activate language pack · enable the plugin first";
+    "Run command… · " = "Run command… · ";
+    " available" = " available";
+    "Reload after fixing the LunaScript source" = "Reload after fixing the LunaScript source";
+    "Open plugin folder" = "Open plugin folder";
+    "Open LunaScript SDK documentation" = "Open LunaScript SDK documentation";
+    " · permissions: " = " · permissions: ";
+    "Plugin changed while its management dialog was open" = "Plugin changed while its management dialog was open";
+    "Theme state changed while the dialog was open · choose the action again" = "Theme state changed while the dialog was open · choose the action again";
+    " theme activated" = " theme activated";
+    "Enable this plugin before activating its theme" = "Enable this plugin before activating its theme";
+    "Default Luna theme restored" = "Default Luna theme restored";
+    "Enable the plugin before running commands" = "Enable the plugin before running commands";
+    " commands" = " commands";
+    "Commands execute only the permissions declared in the source" = "Commands execute only the permissions declared in the source";
+    "Language-pack state changed while the dialog was open · choose the action again" = "Language-pack state changed while the dialog was open · choose the action again";
+    " language pack activated" = " language pack activated";
+    "Enable this plugin before activating its language pack" = "Enable this plugin before activating its language pack";
+    "Built-in English interface restored" = "Built-in English interface restored";
+    "ON  · " = "ON  · ";
+    "OFF · " = "OFF · ";
+    "ERR · " = "ERR · ";
+    "Installed LunaScript plugins" = "Installed LunaScript plugins";
+    "Every new plugin starts disabled; inspect permissions before enabling it" = "Every new plugin starts disabled; inspect permissions before enabling it";
+    "Plugin setting" = "Plugin setting";
+    "Plugin setting blocked while recording or Replay is live" = "Plugin setting blocked while recording or Replay is live";
+    "Plugin microphone configuration" = "Plugin microphone configuration";
+    "Microphone changes are locked until recording or Replay stops" = "Microphone changes are locked until recording or Replay stops";
+    "Plugin microphone target is not configured: " = "Plugin microphone target is not configured: ";
+    "The four microphone mixer slots are already occupied" = "The four microphone mixer slots are already occupied";
+    "Microphone endpoint not found: " = "Microphone endpoint not found: ";
+    " media feedback circuit opened after 8 event-driven actions in 30 seconds" = " media feedback circuit opened after 8 event-driven actions in 30 seconds";
+    " media feedback blocked · fix it, then disable/re-enable the plugin (timers remain the sustained path)" = " media feedback blocked · fix it, then disable/re-enable the plugin (timers remain the sustained path)";
+    " handler skipped · root execution budget exhausted" = " handler skipped · root execution budget exhausted";
+    " sandboxed instruction(s)" = " sandboxed instruction(s)";
+    "Plugin requested Save All while replay is off" = "Plugin requested Save All while replay is off";
+    "Plugin requested a monitor Replay save while replay is off" = "Plugin requested a monitor Replay save while replay is off";
+    " command dispatched" = " command dispatched";
+    " command was blocked or unavailable" = " command was blocked or unavailable";
+    "ACTIVE · " = "ACTIVE · ";
+    " created" = " created";
+    "Delete " = "Delete ";
+    " permanently" = " permanently";
+    " deleted" = " deleted";
+    "Recorder unavailable" = "Recorder unavailable";
+    "The recording worker could not start" = "The recording worker could not start";
+    "Finalizing recording…" = "Finalizing recording…";
+    "Replay buffer is already active" = "Replay buffer is already active";
+    "Stop replay before starting a normal recording" = "Stop replay before starting a normal recording";
+    "Recorder is changing state" = "Recorder is changing state";
+    "Wait for the current start or finalize operation" = "Wait for the current start or finalize operation";
+    "Recorder is busy" = "Recorder is busy";
+    "Recording could not start; try again in a moment" = "Recording could not start; try again in a moment";
+    "Stopping replay buffers…" = "Stopping replay buffers…";
+    "A recording is already active" = "A recording is already active";
+    "Stop the recording before enabling replay" = "Stop the recording before enabling replay";
+    "Replay buffer could not start; try again in a moment" = "Replay buffer could not start; try again in a moment";
+    "One monitor channel could not start; the remaining buffers stay active" = "One monitor channel could not start; the remaining buffers stay active";
+    "Starting multi-monitor replay…" = "Starting multi-monitor replay…";
+    "Starting replay buffer…" = "Starting replay buffer…";
+    " encoded monitor channel(s)" = " encoded monitor channel(s)";
+    "Replay buffer is off" = "Replay buffer is off";
+    "Start Replay Buffer before saving the last moments" = "Start Replay Buffer before saving the last moments";
+    "Monitor replay is not active" = "Monitor replay is not active";
+    "Enable that monitor in REPLAY SOURCES and restart the buffer" = "Enable that monitor in REPLAY SOURCES and restart the buffer";
+    "Auto foreground monitor" = "Auto foreground monitor";
+    " selected monitor(s)" = " selected monitor(s)";
+    "Stop Replay Buffer  ·  " = "Stop Replay Buffer  ·  ";
+    " channel(s) live" = " channel(s) live";
+    "Start Replay Buffer  ·  " = "Start Replay Buffer  ·  ";
+    "Save ALL active monitors now  ·  " = "Save ALL active monitors now  ·  ";
+    "Save ALL monitors  ·  start Replay Buffer first" = "Save ALL monitors  ·  start Replay Buffer first";
+    "Save one specific monitor…  ·  choose a live channel" = "Save one specific monitor…  ·  choose a live channel";
+    "Save one specific monitor…  ·  no live channels" = "Save one specific monitor…  ·  no live channels";
+    "Replay sources…  ·  " = "Replay sources…  ·  ";
+    "Shortcut matrix…  ·  Save All + independent monitor binds" = "Shortcut matrix…  ·  Save All + independent monitor binds";
+    "Open replay recordings folder" = "Open replay recordings folder";
+    "Replay control center" = "Replay control center";
+    "One place for monitor groups, one-monitor saves and fullscreen shortcuts" = "One place for monitor groups, one-monitor saves and fullscreen shortcuts";
+    "Start it before saving past moments" = "Start it before saving past moments";
+    "No live replay channels" = "No live replay channels";
+    "Start Replay Buffer, then choose one monitor or Save All" = "Start Replay Buffer, then choose one monitor or Save All";
+    "Monitor " = "Monitor ";
+    "  ·  no individual bind" = "  ·  no individual bind";
+    "Save one replay monitor" = "Save one replay monitor";
+    "Only the selected monitor is exported; every rolling buffer keeps running" = "Only the selected monitor is exported; every rolling buffer keeps running";
+    "Replay monitor sources" = "Replay monitor sources";
+    "No monitors detected" = "No monitors detected";
+    "Windows returned no attached desktop outputs" = "Windows returned no attached desktop outputs";
+    "Auto foreground  ·  buffer the monitor containing the active game" = "Auto foreground  ·  buffer the monitor containing the active game";
+    "Primary only  ·  minimum GPU/disk load" = "Primary only  ·  minimum GPU/disk load";
+    "Up to 3 monitors  ·  each display gets an independent rolling file" = "Up to 3 monitors  ·  each display gets an independent rolling file";
+    "Custom monitor group…  ·  choose any three displays" = "Custom monitor group…  ·  choose any three displays";
+    "Replay source profile" = "Replay source profile";
+    "Save All exports the whole group; monitor commands export only one channel" = "Save All exports the whole group; monitor commands export only one channel";
+    "Replay source profile updated" = "Replay source profile updated";
+    "The foreground game monitor will be selected when replay starts" = "The foreground game monitor will be selected when replay starts";
+    "Only the primary monitor will be buffered" = "Only the primary monitor will be buffered";
+    "Up to three connected monitors will use independent rolling caches" = "Up to three connected monitors will use independent rolling caches";
+    "AUTO will follow the foreground game when buffering starts" = "AUTO will follow the foreground game when buffering starts";
+    "Only the Windows primary monitor is armed" = "Only the Windows primary monitor is armed";
+    "Up to three connected monitors are armed as independent channels" = "Up to three connected monitors are armed as independent channels";
+    "Three-monitor limit reached" = "Three-monitor limit reached";
+    "Disable one replay source before arming another monitor" = "Disable one replay source before arming another monitor";
+    "Monitor armed for replay" = "Monitor armed for replay";
+    "Monitor removed from replay" = "Monitor removed from replay";
+    " removed · profile returned to AUTO" = " removed · profile returned to AUTO";
+    " source group updated" = " source group updated";
+    "Select several monitors; no selection means automatic foreground monitor" = "Select several monitors; no selection means automatic foreground monitor";
+    "Choose no more than three monitors" = "Choose no more than three monitors";
+    "Replay is capped at three simultaneous encoders for predictable performance" = "Replay is capped at three simultaneous encoders for predictable performance";
+    "All active replay monitors · " = "All active replay monitors · ";
+    "Not assigned" = "Not assigned";
+    "Quick layout  ·  assign Ctrl + Alt + 1…8 to selected monitors" = "Quick layout  ·  assign Ctrl + Alt + 1…8 to selected monitors";
+    "Clear individual monitor shortcuts  ·  keep Save All only" = "Clear individual monitor shortcuts  ·  keep Save All only";
+    "Replay shortcut matrix" = "Replay shortcut matrix";
+    "Choose All or one monitor, then press the new shortcut" = "Choose All or one monitor, then press the new shortcut";
+    "Quick replay layout conflicts" = "Quick replay layout conflicts";
+    "Ctrl + Alt + a monitor number is already used; assign those monitor binds manually" = "Ctrl + Alt + a monitor number is already used; assign those monitor binds manually";
+    "Replay shortcut matrix ready" = "Replay shortcut matrix ready";
+    "Ctrl + Alt + monitor number saves only that monitor; Save All keeps its existing bind" = "Ctrl + Alt + monitor number saves only that monitor; Save All keeps its existing bind";
+    "Individual replay shortcuts cleared" = "Individual replay shortcuts cleared";
+    "The Save All replay shortcut remains active" = "The Save All replay shortcut remains active";
+    "Plugin monitor is unavailable" = "Plugin monitor is unavailable";
+    "Connected monitor index " = "Connected monitor index ";
+    " was not found" = " was not found";
+    "No capturable window" = "No capturable window";
+    "Focus a normal application window and try again" = "Focus a normal application window and try again";
+    "Capture queue is busy" = "Capture queue is busy";
+    "Try again in a moment" = "Try again in a moment";
+    "Capture is already preparing" = "Capture is already preparing";
+    "Wait for the current live-frame snapshot" = "Wait for the current live-frame snapshot";
+    "The requested monitor disconnected before capture" = "The requested monitor disconnected before capture";
+    "Fullscreen screenshot queued" = "Fullscreen screenshot queued";
+    "Copied from the live recorder frame; replay continues" = "Copied from the live recorder frame; replay continues";
+    "Screenshot captured" = "Screenshot captured";
+    "Saving without interrupting replay" = "Saving without interrupting replay";
+    "Fallback desktop frame queued for saving" = "Fallback desktop frame queued for saving";
+    "Screenshot unavailable" = "Screenshot unavailable";
+    "The requested monitor has no replay or desktop frame" = "The requested monitor has no replay or desktop frame";
+    "Capture unavailable" = "Capture unavailable";
+    "No replay or fallback desktop frame was ready" = "No replay or fallback desktop frame was ready";
+    "Capturing all displays" = "Capturing all displays";
+    "Preparing window picker" = "Preparing window picker";
+    "Preparing region editor" = "Preparing region editor";
+    "Replay remains active while live frames are frozen" = "Replay remains active while live frames are frozen";
+    "All displays captured" = "All displays captured";
+    "Saving while replay continues" = "Saving while replay continues";
+    "Live replay frames stitched and queued for saving" = "Live replay frames stitched and queued for saving";
+    "Capture and recording shortcuts are ready" = "Capture and recording shortcuts are ready";
+    "Screenshot saved" = "Screenshot saved";
+    "All displays queued for saving" = "All displays queued for saving";
+    "Active window queued for saving" = "Active window queued for saving";
+    "Active display queued for saving" = "Active display queued for saving";
+    "Window picker" = "Window picker";
+    "Region editor" = "Region editor";
+    "Hover a window and click to capture" = "Hover a window and click to capture";
+    "Select an area and annotate it" = "Select an area and annotate it";
+    "Window picker failed" = "Window picker failed";
+    "Region editor failed" = "Region editor failed";
+    "The frozen desktop surface could not be created" = "The frozen desktop surface could not be created";
+    "Capture error" = "Capture error";
+    "Capture cancelled" = "Capture cancelled";
+    "Window captured" = "Window captured";
+    "Region captured" = "Region captured";
+    "Window copied to clipboard" = "Window copied to clipboard";
+    "Region copied to clipboard" = "Region copied to clipboard";
+    "Saving and copied to clipboard" = "Saving and copied to clipboard";
+    "Saving screenshot" = "Saving screenshot";
+    "Saved there · copied to clipboard" = "Saved there · copied to clipboard";
+    "Saving to selected location" = "Saving to selected location";
+    "Saving · copied to clipboard" = "Saving · copied to clipboard";
+    "Saving to " = "Saving to ";
+    " replay saved · buffer reset" = " replay saved · buffer reset";
+    " · this monitor restarted at 0:00" = " · this monitor restarted at 0:00";
+    " replay saved" = " replay saved";
+    " replay error" = " replay error";
+    " replay reconnecting" = " replay reconnecting";
+    "The buffer continues with recovery frames" = "The buffer continues with recovery frames";
+    " replay restored" = " replay restored";
+    "GPU capture resumed without resetting the buffer" = "GPU capture resumed without resetting the buffer";
+    "Opening DXGI, " = "Opening DXGI, ";
+    " encoder and audio loopback" = " encoder and audio loopback";
+    "Recording live" = "Recording live";
+    " FPS" = " FPS";
+    "Replay buffer live" = "Replay buffer live";
+    "Multi-monitor replay live" = "Multi-monitor replay live";
+    " monitor channel(s) · last " = " monitor channel(s) · last ";
+    " seconds" = " seconds";
+    "Holding recording" = "Holding recording";
+    "Fullscreen mode changed · reconnecting GPU capture" = "Fullscreen mode changed · reconnecting GPU capture";
+    "GPU capture restored without stopping the MP4" = "GPU capture restored without stopping the MP4";
+    "Recording with partial audio" = "Recording with partial audio";
+    "Replay rolling buffer" = "Replay rolling buffer";
+    "Only the newest " = "Only the newest ";
+    " seconds are retained · encoded disk cache" = " seconds are retained · encoded disk cache";
+    " frames · " = " frames · ";
+    " dropped" = " dropped";
+    "Recording saved" = "Recording saved";
+    "Replay saved · buffer reset" = "Replay saved · buffer reset";
+    " · new rolling window started at 0:00" = " · new rolling window started at 0:00";
+    "Replay saved" = "Replay saved";
+    "Ready to record" = "Ready to record";
+    "Recording error" = "Recording error";
+    "Open the download page" = "Open the download page";
+    "Not now" = "Not now";
+    "A newer version is available" = "A newer version is available";
+    "Luna Capture " = "Luna Capture ";
+    " is out; you're on " = " is out; you're on ";
+    ". Delete this copy and download the latest release from GitHub." = ". Delete this copy and download the latest release from GitHub.";
+    "Update available" = "Update available";
+    " is on GitHub · you're on " = " is on GitHub · you're on ";
+    "You're up to date" = "You're up to date";
+    " is the latest release" = " is the latest release";
+    "Update check failed" = "Update check failed";
+    "GitHub could not be reached · try again later" = "GitHub could not be reached · try again later";
+    "Fullscreen recorder active" = "Fullscreen recorder active";
+    "Screenshot saving stays online; DXGI frames come from the recorder" = "Screenshot saving stays online; DXGI frames come from the recorder";
+    "Capture handoff timed out" = "Capture handoff timed out";
+    "The recorder will retry the fullscreen GPU channel" = "The recorder will retry the fullscreen GPU channel";
+    "Reconnecting screenshots" = "Reconnecting screenshots";
+    "Restoring all display capture channels" = "Restoring all display capture channels";
+    "Setting locked while replay is live" = "Setting locked while replay is live";
+    "Setting locked while recording" = "Setting locked while recording";
+    "This setting" = "This setting";
+    " changes the encoder pipeline; stop the active session first. Hotkeys, screenshots, preview and notifications stay editable." = " changes the encoder pipeline; stop the active session first. Hotkeys, screenshots, preview and notifications stay editable.";
+    "Recording, replay or audio configuration" = "Recording, replay or audio configuration";
+    "Notifications are ready" = "Notifications are ready";
+    "The WAV must use PCM or IEEE-float audio" = "The WAV must use PCM or IEEE-float audio";
+    "Start replay first, then save the last moments" = "Start replay first, then save the last moments";
+    "Cinema · 24 FPS" = "Cinema · 24 FPS";
+    "Efficient · 30 FPS" = "Efficient · 30 FPS";
+    "Smooth · 60 FPS" = "Smooth · 60 FPS";
+    "High motion · 90 FPS" = "High motion · 90 FPS";
+    "Competitive · 120 FPS" = "Competitive · 120 FPS";
+    "144 Hz · 144 FPS" = "144 Hz · 144 FPS";
+    "165 Hz · 165 FPS" = "165 Hz · 165 FPS";
+    "Extreme · 240 FPS" = "Extreme · 240 FPS";
+    "Recording frame rate" = "Recording frame rate";
+    "60 FPS is the recommended quality/performance balance" = "60 FPS is the recommended quality/performance balance";
+    "H.264 / AVC · MP4 · maximum compatibility" = "H.264 / AVC · MP4 · maximum compatibility";
+    "HEVC / H.265 · MP4 · smaller files, modern players" = "HEVC / H.265 · MP4 · smaller files, modern players";
+    "AV1 · MP4 · best compression, needs a recent GPU encoder" = "AV1 · MP4 · best compression, needs a recent GPU encoder";
+    "VP9 · MP4 · royalty-free, needs a vendor encoder" = "VP9 · MP4 · royalty-free, needs a vendor encoder";
+    "H.264 fragmented · fMP4 · survives a crash mid-recording" = "H.264 fragmented · fMP4 · survives a crash mid-recording";
+    "HEVC fragmented · fMP4 · crash-safe H.265" = "HEVC fragmented · fMP4 · crash-safe H.265";
+    "MPEG-4 Part 2 · MP4 · plays on very old devices" = "MPEG-4 Part 2 · MP4 · plays on very old devices";
+    "H.263 · 3GP · legacy mobile" = "H.263 · 3GP · legacy mobile";
+    "Windows Media Video 9 · WMV · native Windows playback" = "Windows Media Video 9 · WMV · native Windows playback";
+    "VC-1 Advanced · WMV · Windows Media successor to WMV9" = "VC-1 Advanced · WMV · Windows Media successor to WMV9";
+    "Motion JPEG · AVI · every frame a keyframe, huge but easy to cut" = "Motion JPEG · AVI · every frame a keyframe, huge but easy to cut";
+    "H.264 in AVI · AVI · for editors that refuse MP4" = "H.264 in AVI · AVI · for editors that refuse MP4";
+    "Video codec" = "Video codec";
+    "The container and file extension follow the codec · hardware encoder preferred" = "The container and file extension follow the codec · hardware encoder preferred";
+    "Compact · 6 Mbps" = "Compact · 6 Mbps";
+    "Efficient · 10 Mbps" = "Efficient · 10 Mbps";
+    "Balanced · 16 Mbps" = "Balanced · 16 Mbps";
+    "High quality · 24 Mbps" = "High quality · 24 Mbps";
+    "QHD quality · 35 Mbps" = "QHD quality · 35 Mbps";
+    "4K quality · 50 Mbps" = "4K quality · 50 Mbps";
+    "Near-lossless · 80 Mbps" = "Near-lossless · 80 Mbps";
+    "Archive · 120 Mbps" = "Archive · 120 Mbps";
+    "Video bitrate" = "Video bitrate";
+    "Higher values preserve more motion detail and use more disk space" = "Higher values preserve more motion detail and use more disk space";
+    "Native · no scaling" = "Native · no scaling";
+    "HD · 720p" = "HD · 720p";
+    "Full HD · 1080p" = "Full HD · 1080p";
+    "QHD · 1440p" = "QHD · 1440p";
+    "4K UHD · 2160p" = "4K UHD · 2160p";
+    "8K · 4320p" = "8K · 4320p";
+    "Recording output size" = "Recording output size";
+    "Width follows the source aspect ratio automatically" = "Width follows the source aspect ratio automatically";
+    "Auto · foreground fullscreen window" = "Auto · foreground fullscreen window";
+    "Choose recording display" = "Choose recording display";
+    "Quick moment · 15 seconds" = "Quick moment · 15 seconds";
+    "Default · 30 seconds" = "Default · 30 seconds";
+    "Extended moment · 45 seconds" = "Extended moment · 45 seconds";
+    "One minute · 60 seconds" = "One minute · 60 seconds";
+    "One and a half minutes · 90 seconds" = "One and a half minutes · 90 seconds";
+    "Two minutes · 120 seconds" = "Two minutes · 120 seconds";
+    "Three minutes · 180 seconds" = "Three minutes · 180 seconds";
+    "Five minutes · 300 seconds" = "Five minutes · 300 seconds";
+    "Ten minutes · 600 seconds" = "Ten minutes · 600 seconds";
+    "Instant replay length" = "Instant replay length";
+    "Encoded segments stay on disk instead of filling RAM" = "Encoded segments stay on disk instead of filling RAM";
+    "Disabled · release preview GPU/RAM resources" = "Disabled · release preview GPU/RAM resources";
+    "Ultra efficient · 5 FPS" = "Ultra efficient · 5 FPS";
+    "Efficient · 10 FPS" = "Efficient · 10 FPS";
+    "Balanced · 15 FPS" = "Balanced · 15 FPS";
+    "Smooth · 30 FPS" = "Smooth · 30 FPS";
+    "Fluid · 60 FPS" = "Fluid · 60 FPS";
+    "Live preview" = "Live preview";
+    "This does not change the FPS of the saved recording" = "This does not change the FPS of the saved recording";
+    "System audio gain" = "System audio gain";
+    "100% preserves the original level" = "100% preserves the original level";
+    "Application audio gain" = "Application audio gain";
+    "Compact · 96 kbps" = "Compact · 96 kbps";
+    "Standard · 128 kbps" = "Standard · 128 kbps";
+    "High · 160 kbps" = "High · 160 kbps";
+    "Maximum Windows AAC profile · 192 kbps" = "Maximum Windows AAC profile · 192 kbps";
+    "AAC audio bitrate" = "AAC audio bitrate";
+    "Only profiles supported by the Windows encoder are shown" = "Only profiles supported by the Windows encoder are shown";
+    "Fast · 0.65 seconds" = "Fast · 0.65 seconds";
+    "Compact · 1 second" = "Compact · 1 second";
+    "Default · 1.2 seconds" = "Default · 1.2 seconds";
+    "Comfortable · 1.8 seconds" = "Comfortable · 1.8 seconds";
+    "Long · 2.5 seconds" = "Long · 2.5 seconds";
+    "Accessibility · 4 seconds" = "Accessibility · 4 seconds";
+    "Notification duration" = "Notification duration";
+    "How long the visual confirmation stays on screen" = "How long the visual confirmation stays on screen";
+    "Native C++" = "Native C++";
+    "Version " = "Version ";
+    "Instant Replay" = "Instant Replay";
+    "Audio mixer" = "Audio mixer";
+    "Update " = "Update ";
+    "Capture instantly. Keep moving." = "Capture instantly. Keep moving.";
+    "Active display, full desktop, or a precise region." = "Active display, full desktop, or a precise region.";
+    "Active display" = "Active display";
+    "Foreground monitor" = "Foreground monitor";
+    "All displays" = "All displays";
+    "Stitched virtual desktop" = "Stitched virtual desktop";
+    "Select, annotate, copy or save" = "Select, annotate, copy or save";
+    "Active window" = "Active window";
+    "Click a window to capture" = "Click a window to capture";
+    "Latest capture" = "Latest capture";
+    "Response " = "Response ";
+    "Waiting for first capture" = "Waiting for first capture";
+    "  ·  Saved in " = "  ·  Saved in ";
+    "Open folder" = "Open folder";
+    "Capture output" = "Capture output";
+    "Only the settings that affect your files and feedback." = "Only the settings that affect your files and feedback.";
+    "Save location" = "Save location";
+    "Image format" = "Image format";
+    "PNG · lossless" = "PNG · lossless";
+    "JPEG · smaller files" = "JPEG · smaller files";
+    "Full quality" = "Full quality";
+    "Screenshots are always saved at native resolution" = "Screenshots are always saved at native resolution";
+    "Visual notifications" = "Visual notifications";
+    "Compact capture confirmation" = "Compact capture confirmation";
+    "Capture sound" = "Capture sound";
+    "Preloaded low-latency sound" = "Preloaded low-latency sound";
+    "Copy region automatically" = "Copy region automatically";
+    "Region Save also copies to clipboard" = "Region Save also copies to clipboard";
+    "Test notification" = "Test notification";
+    "Notification sound" = "Notification sound";
+    "Built-in Luna sound" = "Built-in Luna sound";
+    "Import WAV" = "Import WAV";
+    "Video library" = "Video library";
+    "Photo library" = "Photo library";
+    "Recordings and instant replays · click any file to open it in Luna Video Player." = "Recordings and instant replays · click any file to open it in Luna Video Player.";
+    "Screenshots in one place · click any file to open it in Luna Photo Viewer." = "Screenshots in one place · click any file to open it in Luna Photo Viewer.";
+    " videos" = " videos";
+    " photos" = " photos";
+    "The library updates automatically when new media is saved" = "The library updates automatically when new media is saved";
+    "Newest first · lightweight indexing keeps memory usage low" = "Newest first · lightweight indexing keeps memory usage low";
+    "RECENT MEDIA" = "RECENT MEDIA";
+    "No recordings yet" = "No recordings yet";
+    "Start recording or save an instant replay — it will appear here automatically." = "Start recording or save an instant replay — it will appear here automatically.";
+    "Take a screenshot — it will appear here automatically." = "Take a screenshot — it will appear here automatically.";
+    "Loading…" = "Loading…";
+    "Studio recorder" = "Studio recorder";
+    "Fullscreen DXGI capture, live preview, hardware codecs and a multi-source audio mixer." = "Fullscreen DXGI capture, live preview, hardware codecs and a multi-source audio mixer.";
+    "LIVE OUTPUT" = "LIVE OUTPUT";
+    "DISPLAY PREVIEW" = "DISPLAY PREVIEW";
+    "Waiting for the first GPU frame" = "Waiting for the first GPU frame";
+    "Preview disabled" = "Preview disabled";
+    "Stop recording" = "Stop recording";
+    "Start recording" = "Start recording";
+    "Stop replay" = "Stop replay";
+    "Start replay" = "Start replay";
+    " monitors · " = " monitors · ";
+    "Auto monitor · " = "Auto monitor · ";
+    " sec" = " sec";
+    "Save instant replay" = "Save instant replay";
+    " · saves all" = " · saves all";
+    " · current monitor" = " · current monitor";
+    "Display source" = "Display source";
+    "Auto · fullscreen window" = "Auto · fullscreen window";
+    "Frame rate" = "Frame rate";
+    "H.264 bitrate" = "H.264 bitrate";
+    " Mbps" = " Mbps";
+    "Output size" = "Output size";
+    "Replay window" = "Replay window";
+    "Record cursor" = "Record cursor";
+    "Press keys…" = "Press keys…";
+    " live" = " live";
+    "Choose monitor cards once. Save every channel or one exact monitor without stopping the rolling buffer." = "Choose monitor cards once. Save every channel or one exact monitor without stopping the rolling buffer.";
+    "ROLLING BUFFER LIVE  ·  " = "ROLLING BUFFER LIVE  ·  ";
+    " MONITOR(S)" = " MONITOR(S)";
+    "NORMAL RECORDING IS ACTIVE" = "NORMAL RECORDING IS ACTIVE";
+    "READY TO BUFFER" = "READY TO BUFFER";
+    "Keeping newest " = "Keeping newest ";
+    " sec · old segments delete automatically" = " sec · old segments delete automatically";
+    "AUTO will follow the foreground fullscreen game" = "AUTO will follow the foreground fullscreen game";
+    " monitor source(s) armed" = " monitor source(s) armed";
+    "Recording active" = "Recording active";
+    "Save ALL" = "Save ALL";
+    "AUTO GAME" = "AUTO GAME";
+    "Follow foreground game" = "Follow foreground game";
+    "PRIMARY ONLY" = "PRIMARY ONLY";
+    "Lowest resource usage" = "Lowest resource usage";
+    "BOTH MONITORS" = "BOTH MONITORS";
+    "UP TO 3 MONITORS" = "UP TO 3 MONITORS";
+    "Independent live channel each" = "Independent live channel each";
+    "Rolling window" = "Rolling window";
+    "Save ALL shortcut" = "Save ALL shortcut";
+    "Replay files" = "Replay files";
+    "Open output folder" = "Open output folder";
+    "LIVE MONITOR PREVIEWS" = "LIVE MONITOR PREVIEWS";
+    "Maximum 3 channels  ·  efficient 8 FPS preview  ·  recording FPS is unchanged" = "Maximum 3 channels  ·  efficient 8 FPS preview  ·  recording FPS is unchanged";
+    "Waiting for frame" = "Waiting for frame";
+    "Starts with replay" = "Starts with replay";
+    "Press…" = "Press…";
+    "Set bind" = "Set bind";
+    "No connected displays detected" = "No connected displays detected";
+    " seconds · in Encoder" = " seconds · in Encoder";
+
+    // ---------------------------------------------------------------------
+    // Video and encoder page  (30 strings)
+    // ---------------------------------------------------------------------
+    "Video and encoder" = "Video and encoder";
+    "One place for every setting that shapes a video file. These apply to normal recordings and to Instant Replay clips alike." = "One place for every setting that shapes a video file. These apply to normal recordings and to Instant Replay clips alike.";
+    "A recording or Replay buffer is live - encoder settings are locked until it stops." = "A recording or Replay buffer is live - encoder settings are locked until it stops.";
+    "PIPELINE" = "PIPELINE";
+    "FRAME" = "FRAME";
+    "Processing load" = "Processing load";
+    "Who resizes and encodes" = "Who resizes and encodes";
+    "Codec" = "Codec";
+    "Container: " = "Container: ";
+    "Rate control" = "Rate control";
+    "How the bitrate is spent" = "How the bitrate is spent";
+    "Bitrate" = "Bitrate";
+    "Target for this codec" = "Target for this codec";
+    "Ignored in constant quality" = "Ignored in constant quality";
+    "Encoder effort" = "Encoder effort";
+    "Better picture costs more CPU/GPU" = "Better picture costs more CPU/GPU";
+    "Quality level" = "Quality level";
+    "1-100, higher is better" = "1-100, higher is better";
+    "Constant quality mode only" = "Constant quality mode only";
+    "Recordings and Replay alike" = "Recordings and Replay alike";
+    "Resolution" = "Resolution";
+    "Below native resizes on the GPU" = "Below native resizes on the GPU";
+    "Keyframe interval" = "Keyframe interval";
+    "Shorter clips cut more easily" = "Shorter clips cut more easily";
+    "Draw the pointer into the video" = "Draw the pointer into the video";
+    "Audio bitrate" = "Audio bitrate";
+    "AAC, 48 kHz stereo" = "AAC, 48 kHz stereo";
+    "Replay length" = "Replay length";
+    "How far the buffer reaches back" = "How far the buffer reaches back";
+    "Shown" = "Shown";
+    "Hidden" = "Hidden";
+
+    "Mix system or per-application audio with up to four microphones. Every source has its own gain." = "Mix system or per-application audio with up to four microphones. Every source has its own gain.";
+    "Mixer locked for this active session · stop replay/recording to change sources; meters stay live" = "Mixer locked for this active session · stop replay/recording to change sources; meters stay live";
+    "Live input meters · 48 kHz stereo AAC · click any value for presets and optional Custom" = "Live input meters · 48 kHz stereo AAC · click any value for presets and optional Custom";
+    "System audio" = "System audio";
+    "Desktop output · games, browser, voice chat" = "Desktop output · games, browser, voice chat";
+    "Click target to choose an open application" = "Click target to choose an open application";
+    "Application audio" = "Application audio";
+    "Isolated process loopback" = "Isolated process loopback";
+    "Microphone inputs" = "Microphone inputs";
+    "+ Add mic" = "+ Add mic";
+    "No microphone added" = "No microphone added";
+    "Empty mixer slot" = "Empty mixer slot";
+    "Muted in Windows · click name to change" = "Muted in Windows · click name to change";
+    "Noise filter " = "Noise filter ";
+    "% · gate -" = "% · gate -";
+    "Listening · speak to test this exact device" = "Listening · speak to test this exact device";
+    "Live signal · click name to change device" = "Live signal · click name to change device";
+    "AAC output quality" = "AAC output quality";
+    " kbps · supported Windows profile" = " kbps · supported Windows profile";
+    "LunaScript Host API " = "LunaScript Host API ";
+    " · advanced themes, UI control, capture, audio, settings, commands and events." = " · advanced themes, UI control, capture, audio, settings, commands and events.";
+    "LunaScript Host · API " = "LunaScript Host · API ";
+    " installed  ·  " = " installed  ·  ";
+    " enabled  ·  " = " enabled  ·  ";
+    " commands  ·  " = " commands  ·  ";
+    " review  ·  " = " review  ·  ";
+    " errors" = " errors";
+    "THEME · " = "THEME · ";
+    "THEME · Luna Default" = "THEME · Luna Default";
+    "   LANGUAGE · " = "   LANGUAGE · ";
+    "   LANGUAGE · English" = "   LANGUAGE · English";
+    "INSTALLED PLUGINS" = "INSTALLED PLUGINS";
+    "All plugins…" = "All plugins…";
+    "  ·  v" = "  ·  v";
+    "Permissions · " = "Permissions · ";
+    "Source blocked · fix and Reload" = "Source blocked · fix and Reload";
+    "Read the offline SDK, create a plugin, then press Reload. New permissions always require review." = "Read the offline SDK, create a plugin, then press Reload. New permissions always require review.";
+    "ACTIVE  ·  " = "ACTIVE  ·  ";
+    "  ·  MODIFIED" = "  ·  MODIFIED";
+    " FPS · " = " FPS · ";
+    " Mbps · " = " Mbps · ";
+    " · Replay " = " · Replay ";
+    "Save current" = "Save current";
+    "Shortcuts and startup" = "Shortcuts and startup";
+    "Fullscreen-safe: Raw Input + keyboard hook + Windows hotkey. Click a shortcut to replace it." = "Fullscreen-safe: Raw Input + keyboard hook + Windows hotkey. Click a shortcut to replace it.";
+    "Foreground monitor screenshot" = "Foreground monitor screenshot";
+    "Selection and annotation" = "Selection and annotation";
+    "Frozen window picker" = "Frozen window picker";
+    "Start / stop recording" = "Start / stop recording";
+    "Works over exclusive fullscreen" = "Works over exclusive fullscreen";
+    "All monitors or choose a monitor bind" = "All monitors or choose a monitor bind";
+    "Quick Panel" = "Quick Panel";
+    "Fullscreen side controls · default Alt + X" = "Fullscreen side controls · default Alt + X";
+    "Press keys · Esc disables" = "Press keys · Esc disables";
+    "APP BEHAVIOR" = "APP BEHAVIOR";
+    "Start with Windows" = "Start with Windows";
+    "Register Luna Capture at user logon" = "Register Luna Capture at user logon";
+    "Launch directly to tray" = "Launch directly to tray";
+    "Keep the main window hidden on startup" = "Keep the main window hidden on startup";
+    "Fullscreen and desktop overlay display time" = "Fullscreen and desktop overlay display time";
+    " ms" = " ms";
+    "Reset defaults" = "Reset defaults";
+    "Restore shortcuts and every capture option" = "Restore shortcuts and every capture option";
+    "Check for updates" = "Check for updates";
+    "Click to open the GitHub download page" = "Click to open the GitHub download page";
+    "Contacting GitHub…" = "Contacting GitHub…";
+    "Last check failed · click to retry" = "Last check failed · click to retry";
+    "You're on Luna Capture " = "You're on Luna Capture ";
+    "Checking…" = "Checking…";
+    "Check now" = "Check now";
+    "Check again" = "Check again";
+    "application command" = "application command";
+    "low-level hook" = "low-level hook";
+
+    // ---------------------------------------------------------------------
+    // Shared dialogs (pickers, prompts, confirmations)  (36 strings)
+    // ---------------------------------------------------------------------
+    "Print Screen" = "Print Screen";
+    "Page Up" = "Page Up";
+    "Page Down" = "Page Down";
+    "Volume Mute" = "Volume Mute";
+    "Volume Down" = "Volume Down";
+    "Volume Up" = "Volume Up";
+    "Media Next" = "Media Next";
+    "Media Previous" = "Media Previous";
+    "Media Stop" = "Media Stop";
+    "Play / Pause" = "Play / Pause";
+    "Browser Back" = "Browser Back";
+    "Browser Forward" = "Browser Forward";
+    "Browser Refresh" = "Browser Refresh";
+    "Browser Stop" = "Browser Stop";
+    "Browser Search" = "Browser Search";
+    "Browser Favorites" = "Browser Favorites";
+    "Browser Home" = "Browser Home";
+    "Launch Mail" = "Launch Mail";
+    "Launch Media" = "Launch Media";
+    "Launch App 1" = "Launch App 1";
+    "Launch App 2" = "Launch App 2";
+    "Got it" = "Got it";
+    "Enter a non-empty profile name" = "Enter a non-empty profile name";
+    "Enter a value from " = "Enter a value from ";
+    " to " = " to ";
+    "Maximum: " = "Maximum: ";
+    " characters" = " characters";
+    "Allowed: " = "Allowed: ";
+    "Choose screenshot folder" = "Choose screenshot folder";
+    "Import notification sound" = "Import notification sound";
+    "Wave audio (*.wav)" = "Wave audio (*.wav)";
+    "Custom value…  ·  type an exact number" = "Custom value…  ·  type an exact number";
+    " · custom" = " · custom";
+    "Save region screenshot" = "Save region screenshot";
+    "PNG image (*.png)" = "PNG image (*.png)";
+    "JPEG image (*.jpg;*.jpeg)" = "JPEG image (*.jpg;*.jpeg)";
+
+    // ---------------------------------------------------------------------
+    // Quick Panel (the fullscreen-safe side panel)  (15 strings)
+    // ---------------------------------------------------------------------
+    "Luna Quick Panel" = "Luna Quick Panel";
+    "QUICK CAPTURE" = "QUICK CAPTURE";
+    "● RECORDING LIVE" = "● RECORDING LIVE";
+    "● REPLAY BUFFER LIVE" = "● REPLAY BUFFER LIVE";
+    "● READY" = "● READY";
+    "Finish video" = "Finish video";
+    "Start video" = "Start video";
+    " second buffer" = " second buffer";
+    "Capture the active game display" = "Capture the active game display";
+    "Save all replay channels" = "Save all replay channels";
+    "One synchronized save action" = "One synchronized save action";
+    "MONITOR REPLAY" = "MONITOR REPLAY";
+    "PLUGIN COMMANDS" = "PLUGIN COMMANDS";
+    "Open library" = "Open library";
+    "Close quick panel" = "Close quick panel";
+
+    // ---------------------------------------------------------------------
+    // Plugin manager  (13 strings)
+    // ---------------------------------------------------------------------
+    "Line " = "Line ";
+    "Invalid LunaScript" = "Invalid LunaScript";
+    "Review required · permissions changed or not yet approved" = "Review required · permissions changed or not yet approved";
+    "Enabled · sandbox active" = "Enabled · sandbox active";
+    "Disabled · no actions execute" = "Disabled · no actions execute";
+    "No permissions" = "No permissions";
+    "Source must be a readable UTF-8 file" = "Source must be a readable UTF-8 file";
+    "Duplicate plugin id: " = "Duplicate plugin id: ";
+    " plugin(s) · " = " plugin(s) · ";
+    " enabled · " = " enabled · ";
+    " review · " = " review · ";
+    " error(s)" = " error(s)";
+    "asset|" = "asset|";
+
+    // ---------------------------------------------------------------------
+    // Region editor and window picker  (8 strings)
+    // ---------------------------------------------------------------------
+    "Luna Capture Region" = "Luna Capture Region";
+    "Save as" = "Save as";
+    "What should Luna Capture do with this window?" = "What should Luna Capture do with this window?";
+    "Save to default folder" = "Save to default folder";
+    "Copy to clipboard" = "Copy to clipboard";
+    "Save + copy" = "Save + copy";
+    "Hover a window and click to capture   •   Esc to cancel" = "Hover a window and click to capture   •   Esc to cancel";
+    "Drag to select   •   Ctrl+A full screen   •   Esc to cancel" = "Drag to select   •   Ctrl+A full screen   •   Esc to cancel";
+
+    // ---------------------------------------------------------------------
+    // Tray menu  (7 strings)
+    // ---------------------------------------------------------------------
+    "Open Luna Capture" = "Open Luna Capture";
+    "Screenshot folder" = "Screenshot folder";
+    "Stop replay buffer" = "Stop replay buffer";
+    "Start replay buffer" = "Start replay buffer";
+    "Save all replay monitors" = "Save all replay monitors";
+    "  Save Monitor " = "  Save Monitor ";
+    "Recording folder" = "Recording folder";
+
+    // ---------------------------------------------------------------------
+    // Media viewer and fullscreen playback  (4 strings)
+    // ---------------------------------------------------------------------
+    "Playback error" = "Playback error";
+    "Exit fullscreen" = "Exit fullscreen";
+    "Opening with Windows Media Foundation" = "Opening with Windows Media Foundation";
+    "Media Foundation could not open this video" = "Media Foundation could not open this video";
+
+    // ---------------------------------------------------------------------
+    // Overlay toast  (1 strings)
+    // ---------------------------------------------------------------------
+    "Capture failed" = "Capture failed";
+
+    // ---------------------------------------------------------------------
+    // Startup notices  (6 strings)
+    // ---------------------------------------------------------------------
+    "Luna Capture is already running" = "Luna Capture is already running";
+    "Another copy is live in the system tray. Click its tray icon to bring the window back." = "Another copy is live in the system tray. Click its tray icon to bring the window back.";
+    "--background" = "--background";
+    "Luna Capture could not start" = "Luna Capture could not start";
+    "The native windows could not be created. This usually means the graphics device " = "The native windows could not be created. This usually means the graphics device ";
+    "is unavailable — try signing out and back in, or updating your display driver." = "is unavailable — try signing out and back in, or updating your display driver.";
+    }
+}

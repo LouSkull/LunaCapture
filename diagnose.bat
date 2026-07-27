@@ -1,7 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo === Luna Capture 1.0.0.0 diagnostics ===
+set "APP_VERSION=unknown"
+if exist "VERSION" set /p APP_VERSION=<"VERSION"
+echo === Luna Capture %APP_VERSION% diagnostics ===
 echo.
 echo Operating system:
 ver

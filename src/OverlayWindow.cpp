@@ -19,11 +19,10 @@ constexpr int kCornerRadius = 16;
 bool IsForegroundFullscreenOnMonitor(const MONITORINFO& monitorInfo, HWND overlay) {
     const HWND foreground = GetForegroundWindow();
     if (!foreground || foreground == overlay || !IsWindowVisible(foreground) || IsIconic(foreground)) return false;
-    const LONG_PTR style = GetWindowLongPtrW(foreground, GWL_STYLE);
-    if (IsZoomed(foreground) && (style & WS_OVERLAPPEDWINDOW) == WS_OVERLAPPEDWINDOW) return false;
     RECT bounds{};
-    if (!GetWindowRect(foreground, &bounds)) return false;
-    constexpr int kTolerance = 3;
+    if (FAILED(DwmGetWindowAttribute(foreground, DWMWA_EXTENDED_FRAME_BOUNDS, &bounds, sizeof(bounds))) &&
+        !GetWindowRect(foreground, &bounds)) return false;
+    constexpr int kTolerance = 8;
     return bounds.left <= monitorInfo.rcMonitor.left + kTolerance &&
            bounds.top <= monitorInfo.rcMonitor.top + kTolerance &&
            bounds.right >= monitorInfo.rcMonitor.right - kTolerance &&
@@ -31,16 +30,17 @@ bool IsForegroundFullscreenOnMonitor(const MONITORINFO& monitorInfo, HWND overla
 }
 
 void Fill(HDC dc, const RECT& rect, COLORREF color) {
-    HBRUSH brush = CreateSolidBrush(color);
+    HBRUSH brush = CreateSolidBrush(ui::ResolveThemeColor(color));
     FillRect(dc, &rect, brush);
     DeleteObject(brush);
 }
 
 void DrawLabel(HDC dc, const std::wstring& value, RECT rect, COLORREF color, HFONT font, UINT flags) {
+    const std::wstring translated = ui::TranslateText(value);
     HGDIOBJ oldFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, color);
-    DrawTextW(dc, value.c_str(), -1, &rect, flags | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SetTextColor(dc, ui::ResolveThemeColor(color));
+    DrawTextW(dc, translated.c_str(), -1, &rect, flags | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
     SelectObject(dc, oldFont);
 }
 }
@@ -64,10 +64,10 @@ bool OverlayWindow::Create(HINSTANCE instance) {
         Destroy();
         return false;
     }
-    // Keep the notification out of a second screenshot taken while it is still visible.
-    if (!SetWindowDisplayAffinity(hwnd_, WDA_EXCLUDEFROMCAPTURE)) {
-        SetWindowDisplayAffinity(hwnd_, WDA_MONITOR);
-    }
+    // Let the toast be picked up by screen capture — it must be visible in
+    // recordings, Discord streams and OBS. (WDA_EXCLUDEFROMCAPTURE hid it and the
+    // WDA_MONITOR fallback painted it solid black in captured video.)
+    SetWindowDisplayAffinity(hwnd_, WDA_NONE);
     return true;
 }
 
@@ -82,16 +82,28 @@ bool OverlayWindow::CreateGraphics() {
         return false;
     }
     backBufferOldBitmap_ = SelectObject(backBufferDc_, backBufferBitmap_);
-    titleFont_ = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    detailFont_ = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    if (!titleFont_ || !detailFont_) {
+    if (!RecreateFonts()) {
         DestroyGraphics();
         return false;
     }
+    return true;
+}
+
+bool OverlayWindow::RecreateFonts() {
+    HFONT title = ui::CreateThemeFont(15, FW_SEMIBOLD);
+    HFONT detail = ui::CreateThemeFont(13, FW_NORMAL);
+    if (!title || !detail) {
+        if (title) DeleteObject(title);
+        if (detail) DeleteObject(detail);
+        return false;
+    }
+
+    HFONT oldTitle = titleFont_;
+    HFONT oldDetail = detailFont_;
+    titleFont_ = title;
+    detailFont_ = detail;
+    if (oldTitle) DeleteObject(oldTitle);
+    if (oldDetail) DeleteObject(oldDetail);
     return true;
 }
 
@@ -108,35 +120,88 @@ void OverlayWindow::DestroyGraphics() {
 }
 
 void OverlayWindow::Destroy() {
+    if (hwnd_ && IsWindow(hwnd_)) KillTimer(hwnd_, kTimer);
     DestroyGraphics();
     if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
     hwnd_ = nullptr;
 }
 
+void OverlayWindow::RefreshTheme() {
+    RecreateFonts();
+    ApplyOpaqueWindowRegion();
+    if (hwnd_ && IsWindowVisible(hwnd_)) {
+        RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
+}
+
+void OverlayWindow::ApplyOpaqueWindowRegion() {
+    if (!hwnd_ || !opaqueFullscreenFallback_) return;
+    const int radius = (std::min)(ui::ResolveThemeRadius(kCornerRadius),
+                                  (std::min)(width_, height_) / 2);
+    HRGN region = radius > 0
+        ? CreateRoundRectRgn(0, 0, width_ + 1, height_ + 1, radius * 2, radius * 2)
+        : CreateRectRgn(0, 0, width_, height_);
+    if (region && !SetWindowRgn(hwnd_, region, FALSE)) DeleteObject(region);
+}
+
+void OverlayWindow::ConfigurePresentationMode(bool fullscreen) {
+    if (!hwnd_) return;
+    const bool useOpaqueFallback = fullscreen;
+    if (opaqueFullscreenFallback_ == useOpaqueFallback) return;
+
+    ShowWindow(hwnd_, SW_HIDE);
+    LONG_PTR extendedStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    extendedStyle |= WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
+    if (useOpaqueFallback) extendedStyle &= ~static_cast<LONG_PTR>(WS_EX_LAYERED);
+    else extendedStyle |= WS_EX_LAYERED;
+    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, extendedStyle);
+
+    if (useOpaqueFallback) {
+        opaqueFullscreenFallback_ = true;
+        ApplyOpaqueWindowRegion();
+    } else {
+        SetWindowRgn(hwnd_, nullptr, FALSE);
+        opaqueFullscreenFallback_ = false;
+    }
+    SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, width_, height_,
+                 SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+}
+
 void OverlayWindow::ShowSuccess(const std::wstring& filename, double responseMs, int durationMs, HMONITOR monitor) {
-    BeginShow(true, L"Screenshot saved", EllipsizeMiddle(filename, 36), responseMs, durationMs, monitor);
+    BeginShow(OverlayStatus::Success, L"Screenshot saved", EllipsizeMiddle(filename, 36), responseMs, durationMs, monitor);
 }
 
 void OverlayWindow::ShowError(const std::wstring& message, int durationMs, HMONITOR monitor) {
-    BeginShow(false, L"Capture failed", EllipsizeMiddle(message, 42), 0.0, durationMs, monitor);
+    BeginShow(OverlayStatus::Error, L"Capture failed", EllipsizeMiddle(message, 42), 0.0, durationMs, monitor);
 }
 
 void OverlayWindow::ShowMessage(const std::wstring& title, const std::wstring& detail, int durationMs, HMONITOR monitor) {
-    BeginShow(true, title, EllipsizeMiddle(detail, 42), 0.0, durationMs, monitor);
+    BeginShow(OverlayStatus::Success, title, EllipsizeMiddle(detail, 42), 0.0, durationMs, monitor);
 }
 
-void OverlayWindow::BeginShow(bool success, std::wstring title, std::wstring detail, double responseMs,
+void OverlayWindow::ShowWarning(const std::wstring& title, const std::wstring& detail, int durationMs, HMONITOR monitor) {
+    BeginShow(OverlayStatus::Warning, title, EllipsizeMiddle(detail, 42), 0.0, durationMs, monitor);
+}
+
+void OverlayWindow::BeginShow(OverlayStatus status, std::wstring title, std::wstring detail, double responseMs,
                               int durationMs, HMONITOR monitor) {
     if (!hwnd_) return;
-    success_ = success;
+    // A normal window is never composited over true exclusive fullscreen (DWM stops compositing
+    // that surface entirely) — showing it anyway just fights Windows for a result nobody will
+    // see. Detect that state and skip the visual toast outright instead of trying.
+    if (IsExclusiveFullscreenAppActive()) return;
+    status_ = status;
     title_ = std::move(title);
     detail_ = std::move(detail);
     responseMs_ = responseMs;
-    holdDurationMs_ = (std::max)(650, (std::min)(3000, durationMs));
     MONITORINFO info{sizeof(info)};
     if (!monitor) monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
     if (!GetMonitorInfoW(monitor, &info)) return;
     fullscreenPresentation_ = IsForegroundFullscreenOnMonitor(info, hwnd_);
+    ConfigurePresentationMode(fullscreenPresentation_);
+    holdDurationMs_ = fullscreenPresentation_
+        ? (std::max)(1800, (std::min)(4200, durationMs))
+        : (std::max)(650, (std::min)(3000, durationMs));
     const RECT placement = fullscreenPresentation_ ? info.rcMonitor : info.rcWork;
     basePosition_.x = placement.right - width_ - (fullscreenPresentation_ ? 26 : 18);
     basePosition_.y = placement.top + (fullscreenPresentation_ ? 26 : 18);
@@ -146,10 +211,11 @@ void OverlayWindow::BeginShow(bool success, std::wstring title, std::wstring det
     // Rebind the z-order instead of trusting a stale TOPMOST band after an exclusive/independent-flip
     // transition. SW_SHOWNOACTIVATE and WS_EX_NOACTIVATE preserve the game's foreground ownership.
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-    if (fullscreenPresentation_) {
-        SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-    }
+    // Always drop out of and back into the top-most band so the toast is
+    // re-inserted above other top-most windows (borderless-fullscreen games,
+    // other overlays) instead of trusting a stale band position.
+    SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     SetWindowPos(hwnd_, HWND_TOPMOST, basePosition_.x + 20, basePosition_.y, width_, height_,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING);
     RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
@@ -178,11 +244,12 @@ void OverlayWindow::Tick() {
         alpha = static_cast<BYTE>((std::max)(0.0, 1.0 - t) * 255.0);
         x = basePosition_.x + static_cast<int>(t * 8.0);
     }
-    opacity_ = alpha;
+    opacity_ = opaqueFullscreenFallback_ ? 255 : alpha;
     SetWindowPos(hwnd_, HWND_TOPMOST, x, basePosition_.y, 0, 0,
                   SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING);
     InvalidateRect(hwnd_, nullptr, FALSE);
     UpdateWindow(hwnd_);
+    if (fullscreenPresentation_) DwmFlush();
 }
 
 void OverlayWindow::Paint() {
@@ -198,25 +265,32 @@ void OverlayWindow::Paint() {
 
     Fill(backBufferDc_, client, RGB(20, 23, 29));
     ui::MakeLayeredSurfaceOpaque(backBufferPixels_, client.right, client.bottom);
-    const COLORREF accentColor = success_ ? RGB(76, 201, 142) : RGB(244, 101, 112);
+    ui::PaintThemeBackdrop(backBufferDc_, client, ui::ThemeSurface::Overlay, GetTickCount64());
+    const COLORREF accentColor = status_ == OverlayStatus::Success ? RGB(76, 201, 142) :
+                                 status_ == OverlayStatus::Warning ? RGB(246, 180, 72) : RGB(244, 101, 112);
+    const UiIcon statusIcon = status_ == OverlayStatus::Success ? UiIcon::Check :
+                              status_ == OverlayStatus::Warning ? UiIcon::Warning : UiIcon::Close;
     ui::FillRoundRect(backBufferDc_, RECT{7, 14, 11, client.bottom - 14}, 2, accentColor);
 
     // Soft circular badge behind the status glyph.
     ui::FillEllipse(backBufferDc_, RECT{22, 17, 56, 51},
                     ui::MixColor(RGB(20, 23, 29), accentColor, 40.0f / 255.0f));
-    DrawUiIcon(backBufferDc_, success_ ? UiIcon::Check : UiIcon::Close,
-               RECT{30, 25, 48, 43}, accentColor, 2);
+    DrawUiIcon(backBufferDc_, statusIcon, RECT{30, 25, 48, 43}, accentColor, 2);
 
     RECT titleRect{66, 9, width_ - 102, 34};
     DrawLabel(backBufferDc_, title_, titleRect, RGB(244, 246, 250), titleFont_, DT_LEFT);
     RECT detailRect{66, 32, width_ - 16, 59};
     DrawLabel(backBufferDc_, detail_, detailRect, RGB(150, 157, 170), detailFont_, DT_LEFT);
-    if (success_ && responseMs_ > 0.0) {
+    if (status_ == OverlayStatus::Success && responseMs_ > 0.0) {
         RECT latency{width_ - 90, 9, width_ - 14, 34};
         DrawLabel(backBufferDc_, FormatMilliseconds(responseMs_), latency, RGB(113, 170, 255), detailFont_, DT_RIGHT);
     }
-    ui::PresentRoundedLayeredWindow(hwnd_, backBufferDc_, backBufferPixels_,
-                                    client.right, client.bottom, kCornerRadius, opacity_);
+    if (opaqueFullscreenFallback_) {
+        BitBlt(target, 0, 0, client.right, client.bottom, backBufferDc_, 0, 0, SRCCOPY);
+    } else {
+        ui::PresentRoundedLayeredWindow(hwnd_, backBufferDc_, backBufferPixels_,
+                                        client.right, client.bottom, kCornerRadius, opacity_);
+    }
     EndPaint(hwnd_, &paint);
 }
 

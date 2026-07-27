@@ -33,6 +33,9 @@ public:
     void ResumeAfterRecording(const AppSettings& settings);
     void UpdateSettings(const AppSettings& settings);
     void NotifyDisplayChange();
+    // Drop any full-desktop overlay image cached by DXGI before another region
+    // or window-picker request can reuse it.
+    void InvalidateOverlayFrames();
     bool RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, HWND targetWindow,
                         const std::wstring& filenamePrefix, const AppSettings& settings);
     bool RequestPreview(HMONITOR preferredMonitor);
@@ -107,5 +110,6 @@ private:
     std::atomic<bool> ready_{false};
     std::atomic<bool> pausedForRecording_{false};
     std::atomic<bool> displayChangePending_{false};
+    std::atomic<bool> overlayInvalidationPending_{false};
     LARGE_INTEGER qpcFrequency_{};
 };

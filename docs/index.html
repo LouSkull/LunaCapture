@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Luna Capture — a lightweight native Windows screenshot, screen-recording, and instant-replay utility written in C++20. No Electron, no browser runtime.">
+  <title>Luna Capture — native Windows screenshot &amp; recording</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="version.js" defer></script>
+</head>
+<body>
+<header class="sitebar">
+  <a class="sitebrand" href="index.html"><span class="sitemark">◈</span><span>Luna Capture</span></a>
+  <nav class="sitenav">
+    <a href="index.html" class="current">Overview</a>
+    <a href="plugin-sdk.html">SDK Docs</a>
+    <a href="license.html">License</a>
+  </nav>
+  <div class="siteactions">
+    <a class="sitebtn ghost" href="https://github.com/LouSkull/LunaCapture" target="_blank" rel="noopener">Repository</a>
+    <a class="sitebtn solid" href="https://github.com/LouSkull/LunaCapture/releases" target="_blank" rel="noopener">Download</a>
+  </div>
+</header>
+
+<main class="page">
+  <header class="hero split">
+    <div>
+      <span class="eyebrow"><span class="app-version">1.0.0.0</span> · WINDOWS 10/11 · NATIVE C++20</span>
+      <h1>Screen capture that stays out of your way.</h1>
+      <p class="lead">Luna Capture is a lightweight native Windows screenshot, screen-recording, and instant-replay utility. No Electron, no Node.js, no browser runtime — just DirectX, WASAPI and Media Foundation talking straight to the OS.</p>
+      <p class="formerly">Formerly <strong>LunaShot</strong>. The executable is now <code>LunaCapture.exe</code>.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/LouSkull/LunaCapture/releases" target="_blank" rel="noopener">⭳ Download Luna Capture</a>
+        <a class="btn secondary" href="plugin-sdk.html">Read the SDK docs</a>
+      </div>
+      <div class="chips">
+        <span class="chip ok">DXGI Desktop Duplication</span>
+        <span class="chip ok">H.264 / HEVC / AV1</span>
+        <span class="chip blue">Instant Replay</span>
+        <span class="chip blue">LunaScript plugins</span>
+        <span class="chip">WASAPI audio mixer</span>
+        <span class="chip">No telemetry</span>
+      </div>
+    </div>
+
+    <!-- The actual app, redrawn in CSS — no screenshots, fully offline. -->
+    <div class="heroart" aria-hidden="true">
+      <div class="appwin">
+        <div class="titlebar">
+          <span class="t-title"><span class="sitemark">◈</span>Luna Capture</span>
+          <span class="t-controls"><span>─</span><span>✕</span></span>
+        </div>
+        <div class="appbody">
+          <div class="appside">
+            <div class="navitem on"><span class="dot"></span>Home</div>
+            <div class="navitem"><span class="dot"></span>Capture</div>
+            <div class="navitem"><span class="dot"></span>Photos</div>
+            <div class="navitem"><span class="dot"></span>Videos</div>
+            <div class="navitem"><span class="dot"></span>Record</div>
+            <div class="navitem"><span class="dot"></span>Replay</div>
+            <div class="navitem"><span class="dot"></span>Audio</div>
+            <div class="navitem"><span class="dot"></span>Plugins</div>
+            <div class="navitem"><span class="dot"></span>Settings</div>
+            <div class="navver">Version <span class="app-version">1.0.0.0</span></div>
+          </div>
+          <div class="appmain">
+            <div class="headline">Capture instantly. Keep moving.</div>
+            <div class="subline">Active display, full desktop, or a precise region.</div>
+            <div class="appstatus">
+              <span class="led"></span>
+              <div>
+                <div class="s-title">Screenshot engine ready</div>
+                <div class="s-sub">DXGI duplication · 3 displays connected</div>
+              </div>
+            </div>
+            <div class="appcards">
+              <div class="appcard"><div class="badge">▣</div><div class="c-title">Active display</div><div class="c-sub">Foreground monitor</div><div class="c-key">Print Screen</div></div>
+              <div class="appcard"><div class="badge">▦</div><div class="c-title">All displays</div><div class="c-sub">Stitched desktop</div><div class="c-key">Ctrl + PrtScn</div></div>
+              <div class="appcard"><div class="badge">◱</div><div class="c-title">Region editor</div><div class="c-sub">Select &amp; annotate</div><div class="c-key">Shift + PrtScn</div></div>
+              <div class="appcard"><div class="badge">▢</div><div class="c-title">Active window</div><div class="c-sub">Click to capture</div><div class="c-key">Alt + PrtScn</div></div>
+            </div>
+            <div class="applatest">
+              <div>
+                <div class="l-title">Latest capture</div>
+                <div class="l-sub">2026-07-26_Screenshot.png</div>
+              </div>
+              <span class="l-ms">Response 3.4 ms</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="toastmock">
+        <span class="glyph">✓</span>
+        <div>
+          <div class="tm-title">Screenshot saved</div>
+          <div class="tm-sub">2026-07-26_Screenshot.png</div>
+        </div>
+        <span class="tm-ms">3.4 ms</span>
+      </div>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="sec-tag">What's inside</div>
+    <h2>One native app, six workflows.</h2>
+    <p class="lead">Everything below runs from a single, self-contained executable — no installer service, no background updater, no bundled runtime.</p>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="ico">●</span>Screen recording studio</h3>
+        <p>H.264, HEVC, or AV1 MP4 recording with FPS presets from 24–240, automatic foreground-game monitor selection, uninterrupted recovery across fullscreen transitions and GPU resets, and hardware Media Foundation encoders when available.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">♪</span>Audio mixer</h3>
+        <p>System loopback, per-application audio, and up to four microphones mixed live to 48 kHz stereo AAC with independent 0–200% gain, a soft limiter, and persisted device slots for USB mics.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">↺</span>Instant replay / rollback</h3>
+        <p>A rolling encoded buffer — not raw frames in RAM — across up to three monitors at once. One hotkey saves everything that just happened; the buffer resumes automatically after a restart if it was left on.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">◈</span>LunaScript plugins</h3>
+        <p>A sandboxed, permission-fingerprinted native extension platform — commands, timers, events, guarded settings, and a full Theme Studio. No DLLs, no network access, no filesystem access. <a href="plugin-sdk.html">Full SDK →</a></p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">▤</span>Settings &amp; startup</h3>
+        <p>Every setting saves itself to a single portable settings file — copy it to another machine and the whole setup travels with it. Plus "Start with Windows" and direct-to-tray launch.</p>
+      </div>
+      <div class="card">
+        <h3><span class="ico">◇</span>Native interface</h3>
+        <p>Every icon, card, toggle, and panel is anti-aliased GDI+ — no WebView, no Chromium, no layout thrash. A dark rounded chrome shared across the main window, tray, overlay, and region editor.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="previews">
+    <div class="sec-tag">See it in action</div>
+    <h2>The tools you'll actually live in.</h2>
+    <p class="lead">The region editor freezes the whole desktop for pixel-precise selection and annotation; the replay page keeps an encoded rolling buffer ready to save at any moment.</p>
+    <div class="previews">
+      <div class="preview">
+        <div class="p-art">
+          <div class="regionmock">
+            <div class="sel"><i></i><i></i><i></i><i></i></div>
+            <div class="size">884 × 471</div>
+            <div class="rtools">
+              <span class="on">◱</span><span>↗</span><span>▢</span><span>✎</span><span>▆</span><span>⌫</span><span class="ok">✓</span>
+            </div>
+          </div>
+        </div>
+        <div class="p-caption">
+          <b>Region editor</b>
+          <span>Frozen-desktop selection across monitors with arrows, rectangles, pen, highlighter and eraser — copy, save, or both, straight from the toolbar.</span>
+        </div>
+      </div>
+      <div class="preview">
+        <div class="p-art">
+          <div class="replaymock">
+            <div class="r-tile">
+              <span class="rec"><i></i>REPLAY</span>
+              <span class="stamp">buffer 0:58 / 1:00</span>
+            </div>
+            <div class="r-stats">
+              <div class="r-stat"><b>60 FPS</b><span>encoded</span></div>
+              <div class="r-stat"><b>HEVC</b><span>hardware</span></div>
+              <div class="r-stat"><b>3 mon</b><span>buffered</span></div>
+              <div class="r-stat"><b>F10</b><span>save clip</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="p-caption">
+          <b>Instant replay</b>
+          <span>Rolling encoded buffers on up to three monitors at once. One hotkey writes the last minute to MP4 and the buffer restarts at 0:00 — recording never stops.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="shortcuts">
+    <div class="sec-tag">Muscle memory</div>
+    <h2>Default shortcuts</h2>
+    <p class="lead">Every binding below is rebindable in-app and routed through three deduplicated input paths (Raw Input, a low-level keyboard fallback, and <code>RegisterHotKey</code>) so it keeps working inside exclusive-fullscreen games.</p>
+    <table>
+      <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><kbd>Print Screen</kbd></td><td>Capture the display containing the foreground window.</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Print Screen</kbd></td><td>Capture every attached display, stitched into one image.</td></tr>
+        <tr><td><kbd>Shift</kbd> + <kbd>Print Screen</kbd></td><td>Open the full-desktop region editor.</td></tr>
+        <tr><td><kbd>Alt</kbd> + <kbd>Print Screen</kbd></td><td>Pick a single window to capture.</td></tr>
+        <tr><td><kbd>F9</kbd></td><td>Start / stop screen recording.</td></tr>
+        <tr><td><kbd>F10</kbd></td><td>Save the current instant replay.</td></tr>
+        <tr><td><kbd>Alt</kbd> + <kbd>X</kbd></td><td>Open the Quick Panel over fullscreen games.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="get-started">
+    <div class="sec-tag">Get started</div>
+    <h2>Build from source</h2>
+    <p class="lead">The official binary lives in the repository below. To build it yourself:</p>
+    <pre><code>install_and_run.bat</code></pre>
+    <p>This checks for CMake and the MSVC x64 toolchain, builds a static-runtime Release executable, runs the core tests, and starts <code>dist\LunaCapture.exe</code>.</p>
+    <div class="note"><strong>Source-available, not open source</strong>Luna Capture ships under a source-available license: you can read it, compile it, and modify it privately, but redistribution of modified builds isn't permitted. See the <a href="license.html">full license</a> for exactly what's allowed.</div>
+  </section>
+
+  <footer class="footer">
+    <div>Luna Capture <span class="app-version">1.0.0.0</span> · © 2026 ggrolton123<br>Native Windows C++20 · no Electron, no telemetry.</div>
+    <nav>
+      <a href="plugin-sdk.html">SDK Docs</a>
+      <a href="license.html">License</a>
+      <a href="https://github.com/LouSkull/LunaCapture" target="_blank" rel="noopener">Repository ↗</a>
+    </nav>
+  </footer>
+</main>
+</body>
+</html>

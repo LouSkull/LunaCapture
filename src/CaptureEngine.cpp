@@ -200,6 +200,12 @@ void CaptureEngine::NotifyDisplayChange() {
     SetEvent(wakeEvent_);
 }
 
+void CaptureEngine::InvalidateOverlayFrames() {
+    if (!running_.load(std::memory_order_acquire)) return;
+    overlayInvalidationPending_.store(true, std::memory_order_release);
+    SetEvent(wakeEvent_);
+}
+
 bool CaptureEngine::RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, HWND targetWindow,
                                    const std::wstring& filenamePrefix, const AppSettings& settings) {
     if (!running_.load() || pausedForRecording_.load(std::memory_order_acquire)) return false;
@@ -306,14 +312,40 @@ void CaptureEngine::CaptureThreadMain() {
             SetReady(false, L"Display mode changed; rebuilding fullscreen capture…");
             ResetDuplicators();
         }
+        if (overlayInvalidationPending_.exchange(false, std::memory_order_acq_rel)) {
+            // Never reuse a frame acquired while the full-desktop region/window-picker
+            // surface was visible. Recreating duplication also prevents a queued request
+            // from racing the first clean post-overlay compositor frame.
+            SetReady(false, L"Refreshing desktop after region editor…");
+            ResetDuplicators();
+        }
         if (duplicators_.empty()) {
             std::wstring error;
             SetReady(false, L"Connecting displays…");
             if (!InitializeAllDuplicators(error)) {
-                EngineEvent event;
-                event.type = EngineEventType::Error;
-                event.detail = error;
-                PostEngineEvent(std::move(event));
+                // A request may have been queued while the engine was still ready and
+                // then raced a display reset. Fail every queued request with its original
+                // mode so App can release the Region/Window single-flight gate instead of
+                // leaving interactive capture locked until restart.
+                std::deque<CaptureRequest> failedRequests;
+                {
+                    std::lock_guard lock(stateMutex_);
+                    failedRequests.swap(requests_);
+                }
+                if (failedRequests.empty()) {
+                    EngineEvent event;
+                    event.type = EngineEventType::Error;
+                    event.detail = error;
+                    PostEngineEvent(std::move(event));
+                } else {
+                    for (const auto& request : failedRequests) {
+                        EngineEvent event;
+                        event.type = EngineEventType::Error;
+                        event.mode = request.mode;
+                        event.detail = error;
+                        PostEngineEvent(std::move(event));
+                    }
+                }
                 WaitForSingleObject(wakeEvent_, 500);
                 continue;
             }
@@ -665,21 +697,22 @@ void CaptureEngine::ProcessCaptureRequest(CaptureRequest request) {
         feedback.detail = detail;
         PostEngineEvent(std::move(feedback));
     };
+    const auto postCaptureError = [&](std::wstring detail) {
+        EngineEvent event;
+        event.type = EngineEventType::Error;
+        event.mode = request.mode;
+        event.detail = std::move(detail);
+        PostEngineEvent(std::move(event));
+    };
 
     if (request.mode == CaptureMode::ActiveDisplay) {
         auto* state = FindState(request.preferredMonitor);
         if (!state || !state->hasFrame || !state->latestTexture) {
-            EngineEvent event;
-            event.type = EngineEventType::Error;
-            event.detail = L"No active display frame is available";
-            PostEngineEvent(std::move(event));
+            postCaptureError(L"No active display frame is available");
             return;
         }
         if (!EnsureStagingTexture(*state, error)) {
-            EngineEvent event;
-            event.type = EngineEventType::Error;
-            event.detail = error;
-            PostEngineEvent(std::move(event));
+            postCaptureError(error);
             return;
         }
         feedbackMonitor = state->info.monitor;
@@ -691,29 +724,21 @@ void CaptureEngine::ProcessCaptureRequest(CaptureRequest request) {
         feedbackAlreadyPosted = true;
 
         if (!ReadStateToCpu(*state, frame, error, false)) {
-            EngineEvent event;
-            event.type = EngineEventType::Error;
-            event.detail = error;
-            PostEngineEvent(std::move(event));
+            postCaptureError(error);
             return;
         }
     } else if (request.mode == CaptureMode::ActiveWindow) {
         if (!BuildCombinedFrame(frame, error)) {
-            EngineEvent event;
-            event.type = EngineEventType::Error;
-            event.detail = error.empty() ? L"The window picker could not prepare the desktop frame" : error;
-            PostEngineEvent(std::move(event));
+            postCaptureError(error.empty() ? L"The window picker could not prepare the desktop frame" : error);
             return;
         }
         feedbackMonitor = request.preferredMonitor;
         const auto capturedAt = QpcNow();
         response = QpcMilliseconds(request.requestedQpc, capturedAt, qpcFrequency_.QuadPart);
     } else {
+        // Region spans the whole virtual desktop so a selection can cross monitors.
         if (!BuildCombinedFrame(frame, error)) {
-            EngineEvent event;
-            event.type = EngineEventType::Error;
-            event.detail = error;
-            PostEngineEvent(std::move(event));
+            postCaptureError(error);
             return;
         }
         const auto capturedAt = QpcNow();
@@ -759,13 +784,9 @@ void CaptureEngine::ProcessCaptureRequest(CaptureRequest request) {
 }
 
 std::wstring CaptureEngine::BuildOutputPath(const AppSettings& settings, const std::wstring& filenamePrefix) const {
-    SYSTEMTIME time{};
-    GetLocalTime(&time);
-    const auto filename = MakeScreenshotFilename(filenamePrefix, time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute,
-                                                 time.wSecond, time.wMilliseconds,
-                                                 settings.imageFormat == ImageFormat::Jpeg);
     const auto directory = settings.saveDirectory.empty() ? GetDefaultScreenshotDirectory() : settings.saveDirectory;
-    return (std::filesystem::path(directory) / filename).wstring();
+    return MakeChronologicalMediaPath(directory, filenamePrefix,
+                                      settings.imageFormat == ImageFormat::Jpeg ? L".jpg" : L".png");
 }
 
 void CaptureEngine::PostEngineEvent(EngineEvent event) const {

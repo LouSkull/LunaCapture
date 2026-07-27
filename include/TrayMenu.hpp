@@ -5,6 +5,7 @@
 
 #include <Windows.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,16 @@ enum class TrayCommand : UINT {
     SaveReplayMonitor5,
     SaveReplayMonitor6,
     SaveReplayMonitor7,
+    PluginCommand,
+};
+
+struct TrayPluginCommand {
+    std::wstring title;
+    std::wstring icon;
+    std::wstring pluginId;
+    std::wstring commandId;
+    std::size_t pluginIndex = 0;
+    std::size_t commandIndex = 0;
 };
 
 class TrayMenu {
@@ -41,8 +52,9 @@ public:
     bool Create(HINSTANCE instance, HWND notifyWindow);
     void Destroy();
     void Show(POINT screenPoint, const AppSettings& settings, bool recording, bool replayBuffering,
-              std::uint32_t activeReplayMask);
+              std::uint32_t activeReplayMask, const std::vector<TrayPluginCommand>& pluginCommands);
     void Hide();
+    void RefreshTheme();
 
 private:
     struct Item {
@@ -52,11 +64,14 @@ private:
         std::wstring shortcut;
         bool separatorBefore = false;
         bool checked = false;
+        std::size_t dataIndex = 0;
     };
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void Paint();
+    bool RecreateFonts();
+    void UpdateThemeTimer();
     bool EnsureBackBuffer(int width, int height);
     void ReleaseGraphics();
     int HitTest(POINT point) const;

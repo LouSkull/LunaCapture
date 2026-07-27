@@ -25,8 +25,8 @@ public:
 
     bool Start();
     void Stop();
-    bool StartRecording(const AppSettings& settings);
-    bool StartReplayBuffer(const AppSettings& settings);
+    bool StartRecording(const AppSettings& settings, std::uint64_t* sessionGeneration = nullptr);
+    bool StartReplayBuffer(const AppSettings& settings, std::uint64_t* sessionGeneration = nullptr);
     void StopActiveSession();
     void SaveReplay();
     void NotifyDisplayChange();
@@ -49,6 +49,7 @@ private:
         CaptureMode captureMode = CaptureMode::ActiveDisplay;
         std::uint64_t requestId = 0;
         bool drawCursor = false;
+        std::uint64_t sessionGeneration = 0;
     };
 
     bool Queue(Command command);
@@ -70,6 +71,12 @@ private:
     std::atomic<bool> previewConsumerActive_{false};
     std::atomic<int> previewFps_{30};
     std::atomic<bool> previewInFlight_{false};
+    std::atomic<std::uint64_t> nextSessionGeneration_{1};
     std::mutex previewPoolMutex_;
     std::unique_ptr<PreviewFrame> recycledPreview_;
 };
+
+[[nodiscard]] constexpr bool RecordingEventMatchesSession(const RecordingEvent& event,
+                                                          std::uint64_t sessionGeneration) noexcept {
+    return sessionGeneration != 0 && event.sessionGeneration == sessionGeneration;
+}

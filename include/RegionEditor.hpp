@@ -19,10 +19,18 @@ public:
 
     bool Show(std::shared_ptr<FrameBuffer> frame, SessionMode mode, const AppSettings& settings, const std::wstring& filenamePrefix);
     void Cancel();
+    void RefreshTheme();
     bool IsOpen() const noexcept { return visible_; }
+    HWND WindowHandle() const noexcept { return hwnd_; }
 
 private:
-    enum class Tool { Select, Arrow, Rectangle, Pen, Highlighter, Eraser };
+    // Select draws a brand-new region; Move repositions and resizes the one that
+    // already exists (Lightshot-style), leaving the annotations anchored to the
+    // frozen desktop underneath.
+    enum class Tool { Select, Move, Arrow, Rectangle, Pen, Highlighter, Eraser };
+    // Which part of the selection a Move drag grabbed. Grabbing an annotation
+    // instead is tracked separately by movingAnnotation_.
+    enum class Grip { None, Body, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
     struct Annotation {
         Tool tool = Tool::Arrow;
         COLORREF color = RGB(105, 175, 255);
@@ -31,7 +39,7 @@ private:
         POINT end{};
         std::vector<POINT> points;
     };
-    enum class ToolbarAction { None, Select, Arrow, Rectangle, Pen, Highlighter, Eraser, Undo, Redo, Color, Copy, Save };
+    enum class ToolbarAction { None, Select, Move, Arrow, Rectangle, Pen, Highlighter, Eraser, Undo, Redo, Color, Copy, Save };
     enum class PaletteTarget { None, SatVal, Hue, Opacity, Swatch };
     struct ToolbarItem { ToolbarAction action; int width; };
 
@@ -39,6 +47,7 @@ private:
     LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
 
     void Paint();
+    bool RecreateFonts();
     bool BuildFrameSurface();
     void ReleaseFrameSurface();
     void DrawToolbar(HDC dc, const RECT& selection);
@@ -58,6 +67,19 @@ private:
     void UpdateToolbarRect();
     void SetTool(Tool tool);
     void UpdateHoveredWindow(POINT clientPoint);
+    // Instruction text and the window-picker prompt are confined to this rect. The
+    // editor spans the whole virtual desktop, so centring on the client area put
+    // the text on the seam between two monitors - readable on neither.
+    RECT PrimaryMonitorClientRect() const;
+    Grip GripAt(POINT point) const;
+    void ApplyGripDrag(POINT point);
+    void DrawSelectionGrips(HDC dc, const RECT& selection) const;
+    // Index of the topmost annotation whose ink is under `point`, or -1. Hit
+    // testing follows the stroke, not the bounding box, so the hollow middle of
+    // a rectangle still belongs to the selection underneath it.
+    int AnnotationAt(POINT point) const;
+    void ApplyAnnotationDrag(POINT point);
+    static void OffsetAnnotation(Annotation& annotation, int dx, int dy);
     RECT WindowChoicePanel() const;
     RECT WindowChoiceButton(int index) const;
     void EraseAt(POINT point);
@@ -87,6 +109,18 @@ private:
     POINT dragStart_{};
     POINT dragCurrent_{};
     RECT selection_{};
+    Grip activeGrip_ = Grip::None;
+    Grip hoveredGrip_ = Grip::None;
+    POINT gripDragStart_{};
+    RECT gripStartSelection_{};
+    // Snapshot taken when a Move drag starts, so every frame applies one absolute
+    // delta to the original geometry. Accumulating per-frame deltas would drift
+    // once the selection clamps against the desktop edge.
+    std::vector<Annotation> gripStartAnnotations_;
+    int hoveredAnnotation_ = -1;
+    int movingAnnotation_ = -1;
+    POINT annotationDragStart_{};
+    Annotation annotationDragOrigin_{};
     RECT toolbarRect_{};
     SessionMode mode_ = SessionMode::Region;
     Tool tool_ = Tool::Select;

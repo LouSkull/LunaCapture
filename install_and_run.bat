@@ -10,12 +10,16 @@ if errorlevel 1 (
 )
 if exist "dist\LunaCapture.running-old.exe" del /q "dist\LunaCapture.running-old.exe" >nul 2>nul
 
+rem Single source of truth: the VERSION file at the repo root.
+set "APP_VERSION="
+if exist "VERSION" set /p APP_VERSION=<"VERSION"
+
 set "NEED_BUILD=0"
 if not exist "dist\LunaCapture.exe" set "NEED_BUILD=1"
 if not exist "dist\version.txt" set "NEED_BUILD=1"
 if exist "dist\version.txt" (
     set /p BUILT_VERSION=<"dist\version.txt"
-    if /i not "!BUILT_VERSION!"=="1.0.0.0" set "NEED_BUILD=1"
+    if /i not "!BUILT_VERSION!"=="!APP_VERSION!" set "NEED_BUILD=1"
 )
 
 if "!NEED_BUILD!"=="0" (

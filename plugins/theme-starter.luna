@@ -1,0 +1,94 @@
+// =============================================================================
+//  Luna Capture — THEME STARTER
+//  Every semantic color in one file, filled in and ready to re-colour.
+// =============================================================================
+//
+//  WHY THIS IS USEFUL
+//
+//  Luna's theme system has a lot of surface area, and the hard part of starting
+//  a theme is not choosing colours — it is finding out which of the semantic
+//  slots exist and what each one actually paints. This file declares the full
+//  colour set with sane values, so you can recolour in place and immediately
+//  see the result instead of building a palette from an empty block.
+//
+//  HOW TO USE
+//
+//  1. Copy the file and change the plugin id, e.g. "luna.theme.my-theme"
+//  2. Rename the theme, e.g. theme "Solar"
+//  3. Change the #RRGGBB values. Colours are exactly six hex digits.
+//  4. Save into %LOCALAPPDATA%\Luna Capture\Plugins\, hit Plugins -> Reload,
+//     enable the plugin, then Manage -> Activate theme.
+//
+//  WHAT EACH GROUP PAINTS
+//
+//    background / sidebar / topbar   the window chrome behind everything
+//    surface*                        cards, rows and their hover/press states
+//    input / border / focus          fields, dividers, keyboard focus rings
+//    text / text_secondary / muted   the three text weights, plus disabled
+//    accent*                         primary buttons, selection, active nav
+//    info / success / warning / danger   status colours, incl. toast accents
+//
+//  BEYOND COLOUR
+//
+//  The host also supports type, corner, border, motion and backdrop controls
+//  (corner_scale, font_scale, backdrop, gradient_style, background_image and
+//  more — 65 properties in total). They are intentionally left out here to keep
+//  this file a clean colour starting point; see the SDK docs -> Theme Studio
+//  for the complete list and the 15 backdrop patterns.
+//
+// =============================================================================
+
+luna 1;
+
+plugin "luna.base.theme-starter" {
+    name        "Theme Starter";
+    version     "1.0.0";
+    author      "Luna Capture";
+    description "A complete semantic colour set to use as the starting point for your own theme.";
+    requires host_api 5;
+
+    permission theme;
+
+    theme "Nocturne" {
+        // --- Window chrome ----------------------------------------------------
+        background            #0b0d12;
+        background_secondary  #0e1118;
+        sidebar               #0a0c11;
+        topbar                #0c0f15;
+
+        // --- Cards, rows and their states ------------------------------------
+        surface               #12161f;
+        surface_raised        #171c27;
+        surface_hover         #1c2230;
+        surface_pressed       #222939;
+        surface_selected      #24304a;
+
+        // --- Fields, dividers, focus -----------------------------------------
+        input                 #10141c;
+        border                #232a36;
+        border_hover          #33405a;
+        focus                 #6ea8ff;
+
+        // --- Text -------------------------------------------------------------
+        text                  #f3f6fc;
+        text_secondary        #b3bccd;
+        muted                 #98a1b4;
+        disabled              #5a6376;
+
+        // --- Accent (primary buttons, active navigation, selection) ----------
+        accent                #6ea8ff;
+        accent_hover          #86b8ff;
+        accent_pressed        #5b93ec;
+        accent_secondary      #bba7ff;
+        text_on_accent        #0a1220;
+
+        // --- Status -----------------------------------------------------------
+        info                  #6ea8ff;
+        success               #4ecd8b;
+        warning               #f4b64c;
+        danger                #f3707e;
+
+        // --- Depth ------------------------------------------------------------
+        shadow                #05070c;
+    }
+}

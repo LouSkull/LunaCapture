@@ -7,6 +7,7 @@
 class SettingsStore {
 public:
     SettingsStore();
+    explicit SettingsStore(std::wstring path);
 
     AppSettings Load() const;
     bool Save(const AppSettings& settings) const;

@@ -1,154 +1,264 @@
-# Luna Capture 1.0.0.0
+<div align="center">
 
-A lightweight native Windows screenshot, screen-recording, and instant-replay utility written in C++20. There is no Electron, Node.js, Python, WebView, or browser runtime.
+# Luna Capture
 
-> Formerly **LunaShot**. The executable is now `LunaCapture.exe`.
+**Screen capture that stays out of your way.**
 
-## Screen recording studio
+A lightweight **native Windows** screenshot, screen-recording, and instant-replay utility written in C++20.
+No Electron, no Node.js, no browser runtime — just DirectX, WASAPI and Media Foundation talking straight to the OS.
 
-The **Record** page contains the full recording workflow:
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0a7bbb)](https://github.com/LouSkull/LunaCapture)
+[![Language](https://img.shields.io/badge/C%2B%2B-20-00599C)](https://github.com/LouSkull/LunaCapture)
+[![Build](https://img.shields.io/badge/build-CMake%20%2B%20MSVC-064F8C)](https://github.com/LouSkull/LunaCapture)
+[![License](https://img.shields.io/badge/license-Source--Available-f4b64c)](license.txt)
 
-- H.264, HEVC (H.265), or AV1 MP4 recording with Start/Stop controls and an `F9` global shortcut;
-- DXGI Desktop Duplication capture with practical FPS presets from 24 to 240 plus an optional custom value;
-- automatic foreground-game monitor selection (or a fixed monitor override);
-- Windows 10 `DuplicateOutput1` capture with an automatic legacy DXGI fallback;
-- BGRA, RGBA, 10-bit HDR, and 16-bit-float desktop-frame conversion for fullscreen games;
-- sustained-black-frame detection that switches the duplication backend instead of writing a black MP4;
-- uninterrupted recovery after exclusive-fullscreen transitions, Alt+Tab, display-mode changes, and GPU-device resets;
-- a stable recording canvas that letterboxes a new game resolution instead of terminating or corrupting the active MP4;
-- active-display screenshots taken directly from the live recorder frame while recording/replay continues;
-- MMCSS `Capture` scheduling and missed-frame timeline correction to avoid a CPU catch-up spike after reconnection;
-- hardware Media Foundation encoders when the installed GPU/driver exposes them, with a Windows fallback where available;
-- selectable display, native/720p/1080p/1440p/4K/8K output presets, bitrate presets, and optional custom values;
-- DXGI hardware-pointer-shape cursor compositing with a regular Windows-cursor fallback;
-- optional WASAPI loopback capture of the current Windows system mix;
-- an explicitly switchable live letterboxed preview that reuses the recorder frame and never opens a second capture session while recording;
-- a large 640×360 preview surface with status overlaid on the image instead of consuming a separate side panel;
-- live elapsed-time, encoded-FPS, frame, and dropped-frame metrics;
-- a separate recording folder under the user's Videos library by default.
+[**Download**](https://github.com/LouSkull/LunaCapture/releases) · [SDK Docs](website/sdk.html) · [License](license.txt)
 
-## Audio mixer
+</div>
 
-The dedicated **Audio** page can record the Windows system mix or isolate one running application, plus as many as four microphone endpoints at the same time. System, application, and every microphone input have independent 0–200% gain controls. Sources are converted and mixed to 48 kHz stereo with a soft limiter, then encoded as AAC. Device IDs and gains are persisted, so USB microphones reconnect to the same mixer slot. Adding or changing a microphone opens an exact named-device selector, and every active microphone row has a live input meter plus a Windows-mute warning.
+---
 
-FPS, video bitrate, replay length, preview rate, output size, notification duration, and source gains open fast dark preset lists; **Custom** remains the last option when an exact value is useful. AAC shows only encoder-supported choices. Display, microphone, and application sources use direct named selectors.
+## Why
 
-Per-application process loopback is exposed by Windows starting with build 20348. Standard Windows 10 builds can use system audio and multiple microphones, but application-only audio gracefully reports that the OS API is unavailable instead of stopping video recording.
+Most capture tools ship a browser engine to draw a few buttons. Luna Capture is a single self-contained
+`LunaCapture.exe`: the entire interface is anti-aliased GDI+, capture runs on DXGI Desktop Duplication,
+and encoding goes through hardware Media Foundation encoders when your GPU has them.
 
-## Instant replay / rollback
+No installer service. No background updater daemon. No telemetry. It idles in the tray and gets out of the way.
 
-Replay Buffer continuously writes short encoded MP4 segments into `%LocalAppData%\Luna Capture\ReplayCache` instead of retaining raw BGRA frames in RAM: continuous capture is required to save something that already happened, but the cache is a bounded rolling window rather than an ever-growing recording. Segment size is chosen from the requested replay duration, and finalized segments older than the selected window are deleted immediately. The UI reports `buffered / selected rolling` instead of showing session uptime. One or several monitors can be buffered simultaneously; `F10` saves all selected monitors, while optional independent shortcuts save only a chosen monitor. Every channel uses a separate cache and output name.
+## Highlights
 
-While recording or Replay Buffer owns DXGI, screenshots no longer require stopping it. Active-display captures use the recorder's full-resolution frame; all-display, region-editor, and window-picker captures combine full-resolution frames from every active replay channel and use an on-demand desktop fallback for monitors that are not buffered. The normal screenshot save worker remains alive during this handoff.
+- **Screenshots** — active display, all displays stitched into one image, a precise region, or a picked window.
+- **Region editor** — freezes the whole desktop for pixel-accurate selection, a move/resize tool for
+  reframing what you drew, then annotate with arrow, rectangle, pen, highlighter and eraser before
+  copying or saving.
+- **Screen recording** — twelve codecs across MP4, fragmented MP4, WMV, AVI and 3GP (H.264, HEVC, AV1,
+  VP9, MPEG-4, VC-1, MJPEG and more), FPS presets from 24 to 240, automatic foreground-game monitor
+  selection, and recovery that survives fullscreen transitions and GPU resets without dropping the session.
+- **Instant replay** — a rolling *encoded* buffer (not raw frames in RAM) on up to 3 monitors simultaneously.
+  One hotkey writes the last moments to disk and the buffer restarts at 0:00 without interrupting capture.
+- **Audio mixer** — system loopback, per-application audio, and up to 4 microphones mixed live to
+  48 kHz stereo AAC, each with independent 0–200 % gain and a soft limiter.
+- **LunaScript plugins** — a sandboxed, permission-checked extension language. No DLLs, no native code
+  execution, no network or filesystem access. Includes a full Theme Studio.
+- **One settings file** — every setting saves itself to a single portable `settings.ini`; copy it to
+  another machine and the whole setup comes with it.
 
-The sidebar has a dedicated **Replay** page; multi-monitor controls are no longer hidden behind an `R-HUB` popup chain. The page shows large Start/Stop and Save All actions, visible **Auto game / Primary only / All monitors** profiles, rolling duration, Save All binding, output folder, and one live card per connected display. Each card has its source toggle, `LIVE / ARMED / AUTO / OFF` state, direct shortcut control, and **Save this** action. The Record page's Replay chip and the tray's Replay Control Center item navigate directly to this page. While replay is live, the tray also exposes one direct Save row for every channel that is actually buffering.
+> **Looking for screenshots?** The project site under [`website/`](website/) renders a full visual tour —
+> open [`website/index.html`](website/index.html) in a browser. It is completely offline and makes no network calls.
 
-Encoder-pipeline settings (codec, FPS, bitrate, display sources, cursor and audio mixer) are visibly locked for the lifetime of an active recording/replay session because changing them would require rebuilding the MP4 writer. Screenshot settings, preview, notifications, navigation, and every global shortcut remain editable. The Settings page exposes all six primary bindings; the replay row also opens per-monitor bindings when multi-monitor replay is configured.
+## Getting started
 
-## Custom notification sounds
+Two ways to get it, both from the [releases page](https://github.com/LouSkull/LunaCapture/releases):
 
-The Capture page can import PCM or IEEE-float `.wav` files. Imported files are copied into `%LocalAppData%\Luna Capture\Sounds` with collision-safe names, so moving or deleting the original does not break Luna Capture. The selected sound is preloaded through `waveOut` and is used for capture, recording, and replay feedback. Every previously imported sound remains in the managed sound library; **Default** returns to the embedded Luna sound.
+- **`LunaSetup.exe`** — the installer. It checks the machine, downloads the release, and wires up
+  shortcuts, autostart and the `.luna` file association for you.
+- **`LunaCapture.exe`** — the portable build. Nothing to install; just run it.
 
-After selecting a window with **Alt + Print Screen**, Luna Capture keeps the frozen window highlighted and presents three explicit actions: save to the default folder, copy to the clipboard, or save and copy.
+To build either yourself, see [Building from source](#building-from-source).
 
-## Interface
+### The installer
 
-The entire UI is drawn natively with anti-aliased GDI+ — every icon, card, toggle, and rounded panel is vector-rendered, and text uses ClearType Natural rendering. The main window, recording studio, dark tray menu, notification overlay, region editor, preset lists, and numeric popups share the same dark rounded chrome. Owner-drawn buttons clear their full child surface before painting, avoiding bright square corner artifacts on Windows 10.
+`LunaSetup.exe` is a single self-contained executable — no bundled payload, no dependencies of its own.
+
+- **System check** — verifies Windows 10 1903+, a working Direct3D 11 device, and Media Foundation.
+  That last one is genuinely absent on Windows **N/KN** editions until the Media Feature Pack is
+  installed, and the installer says so instead of letting recording fail later.
+- **What it downloads** — `LunaCapture-portable.zip` from the chosen release, expanded into the
+  install folder (app, offline SDK docs, license). `build_release.bat` produces exactly that archive
+  in `dist\`; attach it to the GitHub release next to `LunaSetup.exe`.
+- **Pinned version** — [`installer/installer.ini`](installer/installer.ini) decides which release to
+  fetch (`TargetVersion=1.0.0.1`, or `latest`). If a newer release exists than the pinned one, the
+  first page shows it and offers a one-click switch — it never upgrades behind your back.
+- **Upgrading in place** — if Luna Capture is running, the installer asks it to close before
+  replacing files, so an upgrade never fails on a locked executable.
+- **Options** — install folder, desktop and Start-menu shortcuts, start with Windows, always run as
+  administrator, and the `.luna` file association. Autostart and run-as-admin are mutually exclusive,
+  because a RUNASADMIN shim silently blocks Explorer's sign-in launch.
+- **`.luna` association** — double-clicking a plugin hands it to Luna Capture, which copies it into
+  the plugin folder, reloads, and opens the Plugins page so you can review its permissions. If the app
+  is already running, the file is forwarded to that instance instead of starting a second copy.
+- **Uninstall** — registered in *Apps & features*, or run `LunaSetup.exe --uninstall`. It removes the
+  program, shortcuts, autostart entry, the file association and the compatibility shim, and asks
+  whether to keep your settings, plugins and captures.
+
+Everything installs **per-user** under `%LOCALAPPDATA%`, so no elevation prompt is needed.
 
 ## Default shortcuts
 
-- **Print Screen** — capture the display containing the foreground window. If Windows cannot resolve that window, Luna Capture uses the display under the cursor.
-- **Ctrl + Print Screen** — capture every attached display and stitch them into one virtual-desktop image.
-- **Shift + Print Screen** — open the full-desktop region editor.
-- **Alt + Print Screen** — pick a single window to capture.
+Every binding is rebindable in **Settings**. Hotkeys are routed through three deduplicated input paths
+(Raw Input, a low-level keyboard hook, and `RegisterHotKey`) so they keep firing inside fullscreen games.
 
-All four shortcuts can be changed inside the application.
+| Shortcut | Action |
+| --- | --- |
+| <kbd>Print Screen</kbd> | Capture the display containing the foreground window |
+| <kbd>Ctrl</kbd> + <kbd>Print Screen</kbd> | Capture every display, stitched into one image |
+| <kbd>Shift</kbd> + <kbd>Print Screen</kbd> | Open the full-desktop region editor |
+| <kbd>Alt</kbd> + <kbd>Print Screen</kbd> | Pick a single window to capture |
+| <kbd>F9</kbd> | Start / stop screen recording |
+| <kbd>F10</kbd> | Save the current instant replay |
+| <kbd>Alt</kbd> + <kbd>X</kbd> | Toggle the Quick Panel over fullscreen games |
 
-- **F9** — start/stop screen recording.
-- **F10** — save the current instant replay.
+## Plugins — LunaScript
 
-The recording shortcuts are edited directly on the Record page. Every screenshot, recording, and replay binding now uses three deduplicated input routes: background Raw Input for exclusive-fullscreen games, a low-level keyboard fallback, and normal Windows `RegisterHotKey`. A game owning the ordinary hotkey no longer disables `F9`, `F10`, or the screenshot bindings. The accepted route is written to `%LocalAppData%\Luna Capture\capture.log` for fullscreen diagnostics.
+A plugin is a single UTF-8 `.luna` file interpreted by the host. It is **data, not code**: it cannot call
+Win32, inspect frames, open arbitrary paths, reach the network, or allocate native memory. Every declared
+permission is validated before load, and each execution chain runs on a bounded instruction budget.
 
-## Region editor
+```
+luna 1;
 
-1. Drag to select an area.
-2. Use the compact toolbar or keyboard shortcuts:
-   - `1` / `V` select · `2` / `A` arrow · `3` / `R` rectangle · `4` / `P` pen · `5` / `H` highlighter · `6` / `E` eraser
-   - `Ctrl + Z` undo · `Ctrl + Y` / `Ctrl + Shift + Z` redo
-   - `C` copy · `S` or `Enter` save as · `Esc` cancel
-3. The editor uses the frozen frame that was captured when the shortcut was pressed.
+plugin "studio.acme.quick-capture" {
+    name        "Quick Capture";
+    version     "1.0.0";
+    author      "Acme Studio";
+    description "Captures the active display from Quick Panel.";
+    requires host_api 5;
 
-### Color palette popup
+    permission capture;
+    permission notifications;
 
-The toolbar shows a single color swatch. Click it to open a palette popup with a saturation/value square, a hue spectrum bar, and a row of quick-pick swatches — drag anywhere to choose any color. Quick keys `B` `G` `T` `Y` `W` still set blue / green / red / yellow / white.
+    command "capture-now" {
+        title "Capture now";
+        description "Capture the display containing the foreground window.";
+        icon "monitor";
+        surface quick_panel;
+        order 20;
+        run {
+            capture active;
+            notify "Capture queued" "Luna will report when the image is saved.";
+        }
+    }
+}
+```
 
-### Highlighter opacity
+Drop the file into `%LOCALAPPDATA%\Luna Capture\Plugins\` and hit **Reload** on the Plugins page.
+The complete language reference, Host API, and Theme Studio documentation live in
+[`website/sdk.html`](website/sdk.html) — the same document ships offline with the app and opens from the
+**SDK** button inside the Plugins page.
 
-The highlighter has its own opacity slider (shown in the palette popup while the highlighter is active, adjustable with `[` / `]`). Opacity now changes **only the marker stroke** — the rest of the selection keeps its full brightness.
+### Ready-made plugins
 
-## Build and run
+[`plugins/`](plugins/) holds five working starting points, each parsed by the test suite so they stay valid:
 
-Run:
+| Plugin | What it gives you |
+| --- | --- |
+| [`translation-base.luna`](plugins/translation-base.luna) | **Every user-facing string in the app** (724 entries) as a fill-in-the-blank locale — the base for translating Luna into any language |
+| [`quick-panel-essentials.luna`](plugins/quick-panel-essentials.luna) | Region capture, replay save, recording toggle and folder shortcuts on the Quick Panel and tray |
+| [`session-watchdog.luna`](plugins/session-watchdog.luna) | Turns quiet recording/Replay recovery and failure events into overlay toasts |
+| [`capture-presets.luna`](plugins/capture-presets.luna) | One-press setting bundles for sharing, archiving, and fast screenshots |
+| [`theme-starter.luna`](plugins/theme-starter.luna) | The full semantic colour set, filled in and ready to recolour |
+
+**Want Luna in your language?** Start from `translation-base.luna` — see
+[`plugins/README.md`](plugins/README.md) for the walkthrough.
+
+## Building from source
+
+**Requirements**
+
+- Windows 10 or 11 (x64)
+- CMake 3.24 or newer
+- MSVC x64 toolchain — *Desktop development with C++* plus a Windows 10/11 SDK
+
+**One-shot build and launch**
 
 ```bat
 install_and_run.bat
 ```
 
-The script checks for CMake and the MSVC x64 C++ toolchain, builds a static-runtime Release executable, runs the core tests, and starts:
+This verifies the toolchain, configures CMake, builds a static-runtime Release executable, runs the
+test suite, and starts `dist\LunaCapture.exe`.
 
-```text
-dist\LunaCapture.exe
+**Manual build**
+
+```bat
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-## Design goals
+The executables land in `build\bin\` — `LunaCapture.exe` and `LunaSetup.exe`.
 
-- fixed-size, low-overhead native interface with a persistent back buffer and cached fonts;
-- fully anti-aliased GDI+ rendering for icons, panels, toggles, and annotations;
-- lightweight hover, press, toggle, and navigation animations that do not use Windows system animations;
-- custom dark tray menu instead of the white Windows popup menu;
-- cached tray and notification graphics so hover and capture feedback do not allocate a new surface every frame;
-- cached DXGI frames for fast active-display captures;
-- Media Foundation H.264/HEVC/AV1 MP4 recording with hardware-transform preference;
-- WASAPI shared-mode loopback system-audio capture;
-- multi-endpoint WASAPI microphone mixing and process-loopback audio where the OS supports it;
-- preview downsampling directly from the cached GPU/readback frame, with queues and recycled surfaces released immediately when preview is off;
-- encoded rotating replay segments instead of an unbounded raw-frame RAM queue;
-- simultaneous multi-display replay with per-monitor cache workers and shortcuts, without browser processes;
-- background WIC encoding and file writing;
-- compact notification overlay with no shadow, blur, browser compositor, or delayed HTML rendering;
-- UI, dialogs, notifications, tray menu, and error messages are English-only;
-- the visible and file version is always `1.0.0.0`.
+If something goes wrong, `diagnose.bat` prints the detected toolchain, CMake version, and build state.
 
-## Notes
+### Tests
 
-DXGI Desktop Duplication supports normal desktop windows, borderless games, and DirectX/OpenGL exclusive-fullscreen modes. Windows invalidates the duplication interface when a game changes the display producer, HDR format, or resolution; Luna Capture listens for that transition, holds the last good frame, alternates modern and legacy duplication backends, recreates the GPU path, and continues the same recording timeline. Screenshot capture releases its duplication channel before recording/replay claims it and automatically restores it when recording ends. Backend selection and reconnect errors are written to `%LocalAppData%\Luna Capture\capture.log`.
+`ctest` runs three suites by default:
 
-When the foreground window covers the selected monitor, Luna rebinds its non-activating overlay to the topmost band throughout the animation and also sends a native Windows tray notification as a fullscreen fallback. The overlay never takes keyboard focus and is excluded from subsequent screenshots. A true legacy exclusive surface may still let Windows decide which system overlays are composited; Luna does not inject DLLs, hook the game renderer, modify the game process, or attempt to bypass anti-cheat/content protection. Secure-desktop and DRM/protected surfaces remain unavailable to normal applications.
+| Suite | Covers |
+| --- | --- |
+| `LunaShotCoreTests` | Core utilities, image scaling, LunaScript parsing, localization |
+| `LunaShotPluginDispatchTests` | Plugin event dispatch fairness and instruction budgets |
+| `LunaShotPluginExampleTests` | Every bundled plugin in `plugins/` still parses |
+| `LunaShotThemeTests` | Theme renderer and backdrop patterns |
 
-## Compact keyboards and Fn shortcuts
+Two hardware-dependent smoke tests are excluded from the default build because they capture and encode
+real frames. Build them explicitly when you touch the recording pipeline:
 
-Shortcut recording uses three Windows input paths: a low-level keyboard hook, Raw Input, and app-command media events. Press the physical shortcut exactly as you normally use it, including `Fn` when required.
+```bat
+cmake --build build --target LunaShotRecordingSmoke
+cmake --build build --target LunaShotMediaPlayerSmoke
+```
 
-Most keyboards process `Fn` inside their firmware, so Windows does not receive a separate `Fn` key. Luna Capture therefore records the final Windows key produced by the combination. For example, `Fn + P` may be displayed and stored as `Print Screen`. This is expected and the shortcut will still work.
+### Publishing the sources by hand
 
-A combination that only changes keyboard hardware state, such as backlight brightness or an internal profile, cannot be assigned because Windows receives no key event at all.
+`git push` is the normal way to update the repository. If you upload through the GitHub website
+instead, its uploader takes at most 100 files per drag — so run:
 
-## Visual stability and clipboard compatibility
+```bat
+prepare_github_upload.bat
+```
 
-The region editor composes every frame into a persistent off-screen surface and presents it with one blit. Background erase is disabled, so selection, pen, rectangle, arrow, toolbar hover, and undo no longer expose intermediate frames or flash the desktop.
+It stages a clean `github-source\` folder containing only what belongs in the repository (no build
+output, no `dist`, no captures), prints the file count per folder, and tells you whether it fits in
+one upload or needs splitting.
 
-Clipboard export publishes the selected image in three Windows formats for compatibility:
+### Versioning
 
-- `CF_DIBV5` with explicit BGRA masks;
-- bottom-up `CF_DIB` for older applications;
-- `CF_BITMAP` as a fallback.
+The version lives in exactly one place: the [`VERSION`](VERSION) file at the repository root. CMake reads it
+into `project(VERSION)` and propagates it to the C++ `kAppVersion`, the executable's version resource, the
+build scripts, and the website badges. **Bump that one file for a release** — nothing else needs editing.
 
-Clipboard opening is retried briefly when another application temporarily owns it. Pixel alpha is normalized to opaque before publishing.
+## Repository layout
 
-## Region Save As
+```
+src/           Implementation (capture, recording, audio, UI, plugins)
+include/       Public headers for the above
+installer/     Standalone installer / uninstaller (LunaSetup.exe)
+tests/         ctest suites and hardware smoke tests
+plugins/       Ready-made LunaScript plugins, incl. the full translation base
+assets/        Icon, capture sound, application manifest
+website/       Project site — overview, SDK docs, license
+docs/          Offline SDK copy shipped next to the executable
+cmake/         Generated-header templates
+VERSION        Single source of truth for the app version
+```
 
-In the Region Editor, **Save as** opens the native Windows save dialog. Choose the folder, filename, and PNG/JPEG format. Cancel returns to the editor without losing the current selection or annotations.
+## Where Luna Capture keeps things
 
-## Persistent region selection
+| Path | Contents |
+| --- | --- |
+| `%USERPROFILE%\Pictures\Luna Capture` | Screenshots (default, configurable) |
+| `%USERPROFILE%\Videos\Luna Capture` | Recordings and saved replays (default, configurable) |
+| `%LOCALAPPDATA%\Luna Capture\settings.ini` | All settings and hotkey bindings |
+| `%LOCALAPPDATA%\Luna Capture\Plugins\` | Installed `.luna` plugins |
+| `%LOCALAPPDATA%\Luna Capture\capture.log` | Diagnostic log |
 
-In the Region Editor, **Select** is the first tool and stays active until another tool is chosen. Drag anywhere — including inside the current selection — to replace it with a new region. Press `1` or `V` to return to Select.
+Uninstalling is deleting the executable; removing the `%LOCALAPPDATA%\Luna Capture` folder clears
+everything else.
+
+## Privacy
+
+Luna Capture has no telemetry, no analytics, and no accounts. The only network request it ever makes is an
+update check against the GitHub releases API, which you can trigger or ignore from **Settings → Updates**.
+Plugins cannot make network requests at all.
+
+## License
+
+Luna Capture is **source-available, not open source**. You may read, compile, and privately modify it, and
+use it commercially — but selling it, or distributing modified builds or modified source, is not permitted.
+
+See [`license.txt`](license.txt) for the authoritative terms, or the
+[rendered version](website/license.html) for a plain-language summary alongside the full text.
+
+Copyright © 2026 ggrolton123. All rights reserved.

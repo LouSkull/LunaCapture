@@ -1,10 +1,21 @@
 #include "include/resource.h"
 
+// The version comes from the root VERSION file: CMake generates AppVersionRc.h from it
+// (cmake/AppVersionRc.h.in) with APP_VERSION_RC_NUMERIC and APP_VERSION_ANSI.
+#include "AppVersionRc.h"
+
+// VS_VERSION_INFO (resource id 1) is normally defined by the SDK's winres.h/verrsrc.h, which
+// this .rc does not include. Without it rc.exe silently emitted a *named* resource that
+// GetFileVersionInfo never finds - Explorer and PowerShell showed no version info at all.
+#ifndef VS_VERSION_INFO
+#define VS_VERSION_INFO 1
+#endif
+
 IDI_APP_ICON ICON "assets/lunashot.ico"
 IDR_CAPTURE_SOUND WAVE "assets/capture.wav"
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION APP_VERSION_RC_NUMERIC
+ PRODUCTVERSION APP_VERSION_RC_NUMERIC
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -21,11 +32,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Luna Capture"
             VALUE "FileDescription", "Luna Capture Native Screenshot Utility"
-            VALUE "FileVersion", "1.0.0.0"
+            VALUE "FileVersion", APP_VERSION_ANSI
             VALUE "InternalName", "LunaCapture.exe"
+            VALUE "LegalCopyright", "Copyright (c) Luna Capture"
             VALUE "OriginalFilename", "LunaCapture.exe"
             VALUE "ProductName", "Luna Capture"
-            VALUE "ProductVersion", "1.0.0.0"
+            VALUE "ProductVersion", APP_VERSION_ANSI
         END
     END
     BLOCK "VarFileInfo"

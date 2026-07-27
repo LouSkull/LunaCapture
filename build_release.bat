@@ -2,13 +2,21 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
+rem Single source of truth: the VERSION file at the repo root.
+set "APP_VERSION=unknown"
+if exist "VERSION" set /p APP_VERSION=<"VERSION"
+
 echo.
-echo  Luna Capture 1.0.0.0 - Native Release Build
+echo  Luna Capture %APP_VERSION% - Native Release Build
 echo  =============================================
 echo.
 
 where winget.exe >nul 2>nul
-if errorlevel 1 set "HAS_WINGET=0" else set "HAS_WINGET=1"
+if errorlevel 1 (
+    set "HAS_WINGET=0"
+) else (
+    set "HAS_WINGET=1"
+)
 
 where cmake.exe >nul 2>nul
 if errorlevel 1 (
@@ -44,6 +52,20 @@ if not defined VSROOT (
     exit /b 1
 )
 
+set "VSVERSION="
+for /f "usebackq tokens=*" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion`) do set "VSVERSION=%%I"
+set "CMAKE_VS_GENERATOR=Visual Studio 17 2022"
+if "%VSVERSION:~0,2%"=="18" set "CMAKE_VS_GENERATOR=Visual Studio 18 2026"
+set "CMAKE_GENERATOR_LABEL=%CMAKE_VS_GENERATOR%"
+set CMAKE_GENERATOR_ARGS=-G "%CMAKE_VS_GENERATOR%" -A x64
+set "VS_NINJA_DIR=%VSROOT%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+if exist "%VS_NINJA_DIR%\ninja.exe" set "PATH=%VS_NINJA_DIR%;%PATH%"
+where ninja.exe >nul 2>nul
+if not errorlevel 1 (
+    set "CMAKE_GENERATOR_LABEL=Ninja + MSVC"
+    set "CMAKE_GENERATOR_ARGS=-G Ninja -DCMAKE_BUILD_TYPE=Release"
+)
+
 call "%VSROOT%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
 if errorlevel 1 (
     echo [ERROR] Failed to initialize the Visual Studio environment.
@@ -56,7 +78,8 @@ if not exist dist mkdir dist
 del /q "dist\LunaCapture.exe" "dist\version.txt" >nul 2>nul
 
 echo [1/4] Configuring...
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+echo       Generator: %CMAKE_GENERATOR_LABEL%
+cmake -S . -B build %CMAKE_GENERATOR_ARGS% -DBUILD_TESTING=ON
 if errorlevel 1 goto :failed
 
 echo [2/4] Compiling native C++ sources...
@@ -67,13 +90,45 @@ echo [3/4] Running core tests...
 ctest --test-dir build -C Release --output-on-failure
 if errorlevel 1 goto :failed
 
-echo [4/4] Copying portable executable...
+echo [4/5] Copying portable executable...
 copy /y "build\bin\LunaCapture.exe" "dist\LunaCapture.exe" >nul
 if errorlevel 1 goto :failed
->"dist\version.txt" echo 1.0.0.0
+rem The installer/uninstaller ships alongside the portable build.
+copy /y "build\bin\LunaSetup.exe" "dist\LunaSetup.exe" >nul
+if errorlevel 1 goto :failed
+copy /y "installer\installer.ini" "dist\installer.ini" >nul
+if errorlevel 1 goto :failed
+if exist "dist\docs\examples" rmdir /s /q "dist\docs\examples"
+cmake -E copy_directory "docs" "dist\docs"
+if errorlevel 1 goto :failed
+>"dist\version.txt" echo %APP_VERSION%
+rem Keep the website badges in sync with the VERSION file.
+>"website\version.js" echo window.LUNA_VERSION="%APP_VERSION%";document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".app-version").forEach(function(el){el.textContent=window.LUNA_VERSION;});});
+
+echo [5/5] Packaging LunaCapture-portable.zip...
+rem This is the exact asset name LunaSetup.exe looks for on the release page.
+rem It holds the app plus its offline docs - not the installer itself.
+set "PORTABLE_STAGE=%TEMP%\LunaCapturePortable"
+if exist "%PORTABLE_STAGE%" rmdir /s /q "%PORTABLE_STAGE%"
+mkdir "%PORTABLE_STAGE%"
+copy /y "dist\LunaCapture.exe" "%PORTABLE_STAGE%\LunaCapture.exe" >nul
+if errorlevel 1 goto :failed
+copy /y "dist\version.txt" "%PORTABLE_STAGE%\version.txt" >nul
+cmake -E copy_directory "docs" "%PORTABLE_STAGE%\docs"
+if errorlevel 1 goto :failed
+if exist "license.txt" copy /y "license.txt" "%PORTABLE_STAGE%\license.txt" >nul
+del /q "dist\LunaCapture-portable.zip" >nul 2>nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Compress-Archive -Path '%PORTABLE_STAGE%\*' -DestinationPath 'dist\LunaCapture-portable.zip' -Force"
+if errorlevel 1 goto :failed
+rmdir /s /q "%PORTABLE_STAGE%"
+if not exist "dist\LunaCapture-portable.zip" goto :failed
 
 for %%F in ("dist\LunaCapture.exe") do echo [OK] %%~fF  ^(%%~zF bytes^)
+for %%F in ("dist\LunaSetup.exe") do echo [OK] %%~fF  ^(%%~zF bytes^)
+for %%F in ("dist\LunaCapture-portable.zip") do echo [OK] %%~fF  ^(%%~zF bytes^)
 echo.
+echo Attach dist\LunaCapture-portable.zip and dist\LunaSetup.exe to the GitHub release.
 echo Build completed successfully.
 exit /b 0
 

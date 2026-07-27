@@ -26,10 +26,22 @@ enum class UiIcon {
     Close,
     Minimize,
     Check,
+    Warning,
     Record,
     Replay,
+    Plugin,
     Microphone,
     Cursor,
+    Photo,
+    Video,
+    Play,
+    Pause,
+    Move,
+    SkipBack,
+    SkipForward,
+    Expand,
+    Collapse,
+    Mute,
 };
 
 void DrawUiIcon(HDC dc, UiIcon icon, const RECT& bounds, COLORREF color, int stroke = 2);

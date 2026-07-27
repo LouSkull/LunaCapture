@@ -3,6 +3,9 @@
 #include <Windows.h>
 #include <string>
 
+// Visual status of a toast: green check, amber exclamation triangle, or red cross.
+enum class OverlayStatus { Success, Warning, Error };
+
 class OverlayWindow {
 public:
     OverlayWindow() = default;
@@ -13,17 +16,22 @@ public:
     void ShowSuccess(const std::wstring& filename, double responseMs, int durationMs, HMONITOR monitor);
     void ShowError(const std::wstring& message, int durationMs, HMONITOR monitor);
     void ShowMessage(const std::wstring& title, const std::wstring& detail, int durationMs, HMONITOR monitor);
+    void ShowWarning(const std::wstring& title, const std::wstring& detail, int durationMs, HMONITOR monitor);
+    void RefreshTheme();
     HWND Handle() const noexcept { return hwnd_; }
     bool IsFullscreenPresentation() const noexcept { return fullscreenPresentation_; }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
-    void BeginShow(bool success, std::wstring title, std::wstring detail, double responseMs, int durationMs,
+    void BeginShow(OverlayStatus status, std::wstring title, std::wstring detail, double responseMs, int durationMs,
                    HMONITOR monitor);
     void Paint();
     bool CreateGraphics();
     void DestroyGraphics();
+    bool RecreateFonts();
+    void ConfigurePresentationMode(bool fullscreen);
+    void ApplyOpaqueWindowRegion();
     void Tick();
     void Hide();
 
@@ -32,7 +40,7 @@ private:
     std::wstring title_;
     std::wstring detail_;
     double responseMs_ = 0.0;
-    bool success_ = true;
+    OverlayStatus status_ = OverlayStatus::Success;
     ULONGLONG startedAt_ = 0;
     int holdDurationMs_ = 1200;
     int width_ = 336;
@@ -44,6 +52,7 @@ private:
     void* backBufferPixels_ = nullptr;
     BYTE opacity_ = 255;
     bool fullscreenPresentation_ = false;
+    bool opaqueFullscreenFallback_ = false;
     HFONT titleFont_ = nullptr;
     HFONT detailFont_ = nullptr;
 };
