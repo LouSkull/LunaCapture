@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -770,7 +771,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     ui::InitGraphics();
 
     const std::wstring arguments = commandLine ? commandLine : L"";
-    g.uninstallMode = arguments.find(L"--uninstall") != std::wstring::npos;
+
+    // Uninstall mode is decided by the argument *or* by this binary's own name.
+    //
+    // Install copies setup to "<install dir>\LunaUninstall.exe" and registers it
+    // with "--uninstall" in Add/Remove Programs. Nothing passes that argument
+    // when the user double-clicks that file in the install folder, though — and
+    // a file called LunaUninstall.exe is the obvious thing to double-click — so
+    // it used to come up as the installer and offer to install over itself.
+    bool namedUninstaller = false;
+    {
+        std::wstring modulePath(MAX_PATH * 4, L'\0');
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        modulePath.resize(length);
+        std::wstring stem = std::filesystem::path(modulePath).stem().wstring();
+        for (wchar_t& ch : stem) ch = static_cast<wchar_t>(towlower(ch));
+        namedUninstaller = stem.find(L"uninstall") != std::wstring::npos;
+    }
+    // Explicit --install still wins, so a copy that happens to be named badly can
+    // always be forced back into installing.
+    const bool forceInstall = arguments.find(L"--install") != std::wstring::npos;
+    g.uninstallMode = !forceInstall &&
+                      (namedUninstaller || arguments.find(L"--uninstall") != std::wstring::npos);
 
     if (g.uninstallMode) {
         g.page = Page::UninstallConfirm;
