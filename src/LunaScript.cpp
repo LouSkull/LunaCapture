@@ -769,11 +769,24 @@ private:
                     target == L"application_audio") {
                     if (!TakeToggle(instruction.value)) return FailHere(L"This setting requires on or off");
                 } else if (target == L"codec") {
-                    if (current_.type != TokenType::Identifier) return FailHere(L"codec requires h264, hevc, or av1");
-                    if (current_.text == L"h264") instruction.value = 0;
-                    else if (current_.text == L"hevc") instruction.value = 1;
-                    else if (current_.text == L"av1") instruction.value = 2;
-                    else return FailHere(L"codec requires h264, hevc, or av1");
+                    // Keep in step with VideoCodec in Types.hpp; the value is the
+                    // enum ordinal the host clamps against kVideoCodecCount.
+                    static const std::pair<const wchar_t*, int> kCodecNames[] = {
+                        {L"h264", 0},  {L"hevc", 1},            {L"av1", 2},
+                        {L"vp9", 3},   {L"h264_fragmented", 4}, {L"hevc_fragmented", 5},
+                        {L"mpeg4", 6}, {L"h263", 7},            {L"wmv9", 8},
+                        {L"vc1", 9},   {L"mjpeg", 10},          {L"h264_avi", 11},
+                    };
+                    const std::wstring expected =
+                        L"codec requires h264, hevc, av1, vp9, h264_fragmented, hevc_fragmented, "
+                        L"mpeg4, h263, wmv9, vc1, mjpeg or h264_avi";
+                    if (current_.type != TokenType::Identifier) return FailHere(expected);
+                    int codecValue = -1;
+                    for (const auto& [name, value] : kCodecNames) {
+                        if (current_.text == name) { codecValue = value; break; }
+                    }
+                    if (codecValue < 0) return FailHere(expected);
+                    instruction.value = codecValue;
                     Advance();
                 } else if (target == L"image_format") {
                     if (current_.type != TokenType::Identifier) return FailHere(L"image_format requires png or jpeg");

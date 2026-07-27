@@ -679,7 +679,7 @@ gradient_spread <span class="n">140</span>;
           <tr><td><code>setting recording_fps N;</code></td><td>1–240</td><td>Encoder frame rate.</td></tr>
           <tr><td><code>setting video_bitrate N;</code></td><td>1–200 Mbps</td><td>Video bitrate.</td></tr>
           <tr><td><code>setting recording_height N;</code></td><td>0–4320</td><td>Video height; 0 is native.</td></tr>
-          <tr><td><code>setting codec h264|hevc|av1;</code></td><td>three identifiers</td><td>Video codec, subject to installed encoder support.</td></tr>
+          <tr><td><code>setting codec h264|hevc|av1|vp9|h264_fragmented|hevc_fragmented|mpeg4|h263|wmv9|vc1|mjpeg|h264_avi;</code></td><td>twelve identifiers</td><td>Video codec, subject to installed encoder support. The container and file extension follow the codec (MP4, fragmented MP4, 3GP, WMV or AVI).</td></tr>
           <tr><td><code>setting system_audio on|off;</code></td><td>toggle</td><td>System-loopback source. Turning it on turns application-only audio off.</td></tr>
           <tr><td><code>setting system_audio_volume N;</code></td><td>0–200%</td><td>System source gain.</td></tr>
           <tr><td><code>setting application_audio on|off;</code></td><td>toggle</td><td>Configured per-application loopback source. Turning it on turns system audio off.</td></tr>
@@ -745,7 +745,7 @@ audio remove_microphone <span class="s">"default"</span>;</code></pre>
           <tr><td><code>ui page home;</code></td><td>Show the main window on Home.</td></tr>
           <tr><td><code>ui page capture|photos|videos;</code></td><td>Show one capture-library page.</td></tr>
           <tr><td><code>ui page record|replay|audio;</code></td><td>Show one media studio page.</td></tr>
-          <tr><td><code>ui page plugins|profiles|settings;</code></td><td>Show one configuration page.</td></tr>
+          <tr><td><code>ui page encoder|plugins|settings;</code></td><td>Show one configuration page.</td></tr>
           <tr><td><code>quick_panel show;</code> / <code>hide;</code> / <code>toggle;</code></td><td>Control Luna's Quick Panel.</td></tr>
         </tbody>
       </table>

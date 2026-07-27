@@ -26,7 +26,9 @@
 //    audio_bitrate      96, 128, 160 or 192  (kbps)
 //    jpeg_quality       1 .. 100
 //    replay_seconds     5 .. 3600
-//    codec              h264 | hevc | av1
+//    codec              h264 | hevc | av1 | vp9 | h264_fragmented | hevc_fragmented
+//                       | mpeg4 | h263 | wmv9 | vc1 | mjpeg | h264_avi
+//                       (the container and file extension follow the codec)
 //    image_format       png | jpeg
 //
 //  INSTALL

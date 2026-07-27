@@ -360,7 +360,7 @@ LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPA
                     while (!value.empty() && std::iswspace(value.front())) value.erase(value.begin());
                     while (!value.empty() && std::iswspace(value.back())) value.pop_back();
                     if (value.empty()) {
-                        state->error = L"Enter a non-empty profile name";
+                        state->error = L"Enter a name";
                         MessageBeep(MB_ICONWARNING);
                         InvalidateRect(window, nullptr, FALSE);
                         return 0;
