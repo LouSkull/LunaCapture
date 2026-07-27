@@ -120,13 +120,13 @@ bool RegionEditor::Create(HINSTANCE instance, HWND notifyWindow) {
     wc.hbrBackground = nullptr;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
     toolbarFont_ = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     hintFont_ = CreateFontW(-23, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     sizeFont_ = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     if (!toolbarFont_ || !hintFont_ || !sizeFont_) {
         Destroy();
@@ -168,6 +168,7 @@ bool RegionEditor::Show(std::shared_ptr<FrameBuffer> frame, SessionMode mode, co
     drawingAnnotation_ = false;
     hoveredWindow_ = nullptr;
     hoveredWindowRect_ = {};
+    windowChoicePending_ = false;
     paletteOpen_ = false;
     paletteDrag_ = PaletteTarget::None;
     SyncHsvFromColor();
@@ -294,6 +295,24 @@ void RegionEditor::UpdateHoveredWindow(POINT clientPoint) {
                               bounds.right - frame_->virtualRect.left, bounds.bottom - frame_->virtualRect.top};
 }
 
+RECT RegionEditor::WindowChoicePanel() const {
+    const int width = 650;
+    const int height = 116;
+    const int frameWidth = frame_ ? static_cast<int>(frame_->width) : width;
+    const int frameHeight = frame_ ? static_cast<int>(frame_->height) : height;
+    const int left = (frameWidth - width) / 2;
+    const int top = (std::max)(24, frameHeight - height - 48);
+    return RECT{left, top, left + width, top + height};
+}
+
+RECT RegionEditor::WindowChoiceButton(int index) const {
+    const RECT panel = WindowChoicePanel();
+    constexpr int gap = 10;
+    constexpr int buttonWidth = 196;
+    const int left = panel.left + 21 + index * (buttonWidth + gap);
+    return RECT{left, panel.top + 54, left + buttonWidth, panel.bottom - 14};
+}
+
 RegionEditor::ToolbarAction RegionEditor::HitTestToolbar(POINT point) const {
     if (!PointInside(toolbarRect_, point)) return ToolbarAction::None;
     for (const auto& item : ToolbarItems()) {
@@ -384,6 +403,7 @@ void RegionEditor::Complete(RegionResultAction action) {
     ShowWindow(hwnd_, SW_HIDE);
     visible_ = false;
     paletteOpen_ = false;
+    windowChoicePending_ = false;
     auto* result = new (std::nothrow) RegionResult();
     if (!result) return;
     result->action = action;
@@ -872,8 +892,23 @@ void RegionEditor::Paint() {
             ui::StrokeRoundRect(renderDc_, sizeRect, 9, RGB(64, 70, 84));
             DrawTextCentered(renderDc_, sizeText, sizeRect, RGB(224, 229, 238), sizeFont_);
         }
-        RECT message{0, client.bottom / 2 - 36, client.right, client.bottom / 2 + 36};
-        DrawTextCentered(renderDc_, L"Hover a window and click to capture   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
+        if (windowChoicePending_) {
+            const RECT panel = WindowChoicePanel();
+            ui::FillRoundRect(renderDc_, panel, 18, RGB(18, 21, 27));
+            ui::StrokeRoundRect(renderDc_, panel, 18, RGB(66, 78, 96), 1);
+            DrawTextCentered(renderDc_, L"What should Luna Capture do with this window?", RECT{panel.left + 16, panel.top + 10, panel.right - 16, panel.top + 48},
+                             RGB(238, 242, 249), hintFont_);
+            const wchar_t* labels[] = {L"Save to default folder", L"Copy to clipboard", L"Save + copy"};
+            const COLORREF colors[] = {RGB(46, 87, 157), RGB(45, 101, 118), RGB(86, 65, 157)};
+            for (int i = 0; i < 3; ++i) {
+                const RECT button = WindowChoiceButton(i);
+                ui::FillRoundRect(renderDc_, button, 11, colors[i]);
+                DrawTextCentered(renderDc_, labels[i], button, RGB(250, 252, 255), sizeFont_);
+            }
+        } else {
+            RECT message{0, client.bottom / 2 - 36, client.right, client.bottom / 2 + 36};
+            DrawTextCentered(renderDc_, L"Hover a window and click to capture   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
+        }
     } else if (HasSelection()) {
         const RECT selection = NormalizedSelection();
         BitBlt(renderDc_, selection.left, selection.top, selection.right - selection.left,
@@ -931,6 +966,11 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 Complete(RegionResultAction::Cancel);
                 return 0;
             }
+            if (mode_ == SessionMode::WindowPicker && windowChoicePending_) {
+                if (wParam == 'S') { Complete(RegionResultAction::Save); return 0; }
+                if (wParam == 'C') { Complete(RegionResultAction::Copy); return 0; }
+                if (wParam == 'B') { Complete(RegionResultAction::SaveAndCopy); return 0; }
+            }
             if (ctrl && shift && wParam == 'Z') { Redo(); return 0; }
             if (ctrl && wParam == 'Y') { Redo(); return 0; }
             if (ctrl && wParam == 'Z') { Undo(); return 0; }
@@ -970,12 +1010,19 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
         case WM_LBUTTONDOWN: {
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (mode_ == SessionMode::WindowPicker) {
+                if (windowChoicePending_) {
+                    if (PointInside(WindowChoiceButton(0), point)) Complete(RegionResultAction::Save);
+                    else if (PointInside(WindowChoiceButton(1), point)) Complete(RegionResultAction::Copy);
+                    else if (PointInside(WindowChoiceButton(2), point)) Complete(RegionResultAction::SaveAndCopy);
+                    return 0;
+                }
                 UpdateHoveredWindow(point);
                 if (hoveredWindowRect_.right > hoveredWindowRect_.left &&
                     hoveredWindowRect_.bottom > hoveredWindowRect_.top) {
                     selection_ = hoveredWindowRect_;
-                    filenamePrefix_ = L"Screenshot";
-                    Complete(RegionResultAction::Save);
+                    filenamePrefix_ = GetWindowCaptureName(hoveredWindow_);
+                    windowChoicePending_ = true;
+                    InvalidateRect(hwnd_, nullptr, FALSE);
                 }
                 return 0;
             }
@@ -1045,6 +1092,7 @@ LRESULT RegionEditor::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if (mode_ == SessionMode::WindowPicker) {
+                if (windowChoicePending_) return 0;
                 RECT previous = hoveredWindowRect_;
                 UpdateHoveredWindow(point);
                 if (std::memcmp(&previous, &hoveredWindowRect_, sizeof(RECT)) != 0) InvalidateRect(hwnd_, nullptr, FALSE);

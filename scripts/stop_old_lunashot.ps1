@@ -11,3 +11,9 @@ Get-CimInstance Win32_Process | Where-Object {
 } | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
+
+if (Get-Process -Name 'LunaCapture' -ErrorAction SilentlyContinue) {
+    Write-Error 'Luna Capture is still running (usually elevated). Exit it from the tray, then run the installer again.'
+    exit 2
+}
+exit 0

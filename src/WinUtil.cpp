@@ -5,6 +5,7 @@
 #include <ShObjIdl.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <uxtheme.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iterator>
+#include <mutex>
 #include <sstream>
 
 namespace {
@@ -80,6 +82,316 @@ bool IsUsableForegroundWindow(HWND window, HWND applicationWindow) {
     if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
     return true;
 }
+
+constexpr wchar_t kNumericDialogClass[] = L"LunaCaptureNumericDialog";
+constexpr wchar_t kChoiceDialogClass[] = L"LunaCaptureChoiceDialog";
+constexpr int kNumericEditId = 4101;
+constexpr int kChoiceListId = 4201;
+
+struct NumericDialogState {
+    std::wstring title;
+    std::wstring detail;
+    std::wstring error;
+    int minimum = 0;
+    int maximum = 0;
+    int result = 0;
+    bool done = false;
+    bool accepted = false;
+    HWND edit = nullptr;
+    HFONT titleFont = nullptr;
+    HFONT normalFont = nullptr;
+    HBRUSH editBrush = nullptr;
+};
+
+void ApplyDialogChrome(HWND window) {
+    RECT client{};
+    GetClientRect(window, &client);
+    const int width = (std::max)(1L, client.right - client.left);
+    const int height = (std::max)(1L, client.bottom - client.top);
+    HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1, 24, 24);
+    if (region && !SetWindowRgn(window, region, TRUE)) DeleteObject(region);
+
+    const BOOL dark = TRUE;
+    const DWORD round = 2;  // DWMWCP_ROUND
+    const COLORREF noBorder = 0xFFFFFFFE;  // DWMWA_COLOR_NONE
+    DwmSetWindowAttribute(window, 20, &dark, sizeof(dark));
+    DwmSetWindowAttribute(window, 19, &dark, sizeof(dark));
+    DwmSetWindowAttribute(window, 33, &round, sizeof(round));
+    DwmSetWindowAttribute(window, 34, &noBorder, sizeof(noBorder));
+}
+
+void DrawDialogButton(const DRAWITEMSTRUCT& item, const wchar_t* text, bool primary, HFONT font) {
+    const bool pressed = (item.itemState & ODS_SELECTED) != 0;
+    const COLORREF fill = primary ? (pressed ? RGB(62, 105, 181) : RGB(73, 124, 211))
+                                  : (pressed ? RGB(44, 49, 60) : RGB(34, 38, 47));
+    HBRUSH outside = CreateSolidBrush(RGB(15, 17, 22));
+    FillRect(item.hDC, &item.rcItem, outside);
+    DeleteObject(outside);
+    HBRUSH brush = CreateSolidBrush(fill);
+    HPEN pen = CreatePen(PS_SOLID, 1, primary ? RGB(91, 145, 232) : RGB(60, 66, 78));
+    HGDIOBJ oldBrush = SelectObject(item.hDC, brush);
+    HGDIOBJ oldPen = SelectObject(item.hDC, pen);
+    RoundRect(item.hDC, item.rcItem.left, item.rcItem.top, item.rcItem.right, item.rcItem.bottom, 14, 14);
+    SelectObject(item.hDC, oldBrush);
+    SelectObject(item.hDC, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, primary ? RGB(250, 252, 255) : RGB(202, 208, 219));
+    HGDIOBJ oldFont = SelectObject(item.hDC, font);
+    RECT textRect = item.rcItem;
+    DrawTextW(item.hDC, text, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(item.hDC, oldFont);
+}
+
+LRESULT CALLBACK NumericDialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* state = reinterpret_cast<NumericDialogState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        state = static_cast<NumericDialogState*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+    }
+    if (!state) return DefWindowProcW(window, message, wParam, lParam);
+    switch (message) {
+        case WM_CREATE: {
+            state->titleFont = CreateFontW(-20, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            state->normalFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            state->editBrush = CreateSolidBrush(RGB(25, 29, 36));
+            state->edit = CreateWindowExW(0, L"EDIT", std::to_wstring(state->result).c_str(),
+                                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL,
+                                           24, 100, 382, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNumericEditId)),
+                                           GetModuleHandleW(nullptr), nullptr);
+            HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                          218, 158, 88, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), GetModuleHandleW(nullptr), nullptr);
+            HWND accept = CreateWindowExW(0, L"BUTTON", L"Apply", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                          318, 158, 88, 38, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), GetModuleHandleW(nullptr), nullptr);
+            SendMessageW(state->edit, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SetWindowTheme(state->edit, L"DarkMode_Explorer", nullptr);
+            SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SendMessageW(accept, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SendMessageW(state->edit, EM_SETSEL, 0, -1);
+            SetFocus(state->edit);
+            ApplyDialogChrome(window);
+            return 0;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDCANCEL) { state->done = true; return 0; }
+            if (LOWORD(wParam) == IDOK) {
+                wchar_t value[64]{};
+                GetWindowTextW(state->edit, value, static_cast<int>(std::size(value)));
+                wchar_t* end = nullptr;
+                const long long parsed = wcstoll(value, &end, 10);
+                while (end && *end == L' ') ++end;
+                if (end == value || (end && *end != L'\0') || parsed < state->minimum || parsed > state->maximum) {
+                    state->error = L"Enter a value from " + std::to_wstring(state->minimum) + L" to " + std::to_wstring(state->maximum);
+                    MessageBeep(MB_ICONWARNING);
+                    SendMessageW(state->edit, EM_SETSEL, 0, -1);
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+                state->result = static_cast<int>(parsed);
+                state->accepted = true;
+                state->done = true;
+                return 0;
+            }
+            break;
+        case WM_DRAWITEM: {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (!item) return FALSE;
+            DrawDialogButton(*item, item->CtlID == IDOK ? L"Apply" : L"Cancel", item->CtlID == IDOK, state->normalFont);
+            return TRUE;
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, RGB(238, 242, 249));
+            SetBkColor(dc, RGB(25, 29, 36));
+            return reinterpret_cast<LRESULT>(state->editBrush);
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            HDC dc = BeginPaint(window, &paint);
+            RECT client{};
+            GetClientRect(window, &client);
+            HBRUSH background = CreateSolidBrush(RGB(15, 17, 22));
+            FillRect(dc, &client, background);
+            DeleteObject(background);
+            SetBkMode(dc, TRANSPARENT);
+            HGDIOBJ oldFont = SelectObject(dc, state->titleFont);
+            SetTextColor(dc, RGB(242, 245, 251));
+            RECT title{24, 17, 406, 49};
+            DrawTextW(dc, state->title.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            SelectObject(dc, state->normalFont);
+            SetTextColor(dc, RGB(130, 139, 154));
+            RECT detail{24, 48, 406, 86};
+            DrawTextW(dc, state->detail.c_str(), -1, &detail, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            if (!state->error.empty()) {
+                SetTextColor(dc, RGB(243, 112, 126));
+                RECT error{24, 137, 205, 196};
+                DrawTextW(dc, state->error.c_str(), -1, &error, DT_LEFT | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+            } else {
+                SetTextColor(dc, RGB(89, 99, 114));
+                const std::wstring range = L"Allowed: " + std::to_wstring(state->minimum) + L"–" + std::to_wstring(state->maximum);
+                RECT rangeRect{24, 137, 205, 196};
+                DrawTextW(dc, range.c_str(), -1, &rangeRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
+            SelectObject(dc, oldFont);
+            EndPaint(window, &paint);
+            return 0;
+        }
+        case WM_ERASEBKGND: return 1;
+        case WM_CLOSE: state->done = true; return 0;
+        case WM_DESTROY:
+            if (state->titleFont) DeleteObject(state->titleFont);
+            if (state->normalFont) DeleteObject(state->normalFont);
+            if (state->editBrush) DeleteObject(state->editBrush);
+            state->titleFont = nullptr; state->normalFont = nullptr; state->editBrush = nullptr;
+            return 0;
+        default: break;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+struct ChoiceDialogState {
+    std::wstring title;
+    std::wstring detail;
+    std::vector<std::wstring> items;
+    int result = -1;
+    std::uint32_t resultMask = 0;
+    int height = 320;
+    bool done = false;
+    bool accepted = false;
+    bool multiple = false;
+    HWND list = nullptr;
+    HFONT titleFont = nullptr;
+    HFONT normalFont = nullptr;
+    HBRUSH listBrush = nullptr;
+};
+
+LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* state = reinterpret_cast<ChoiceDialogState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        state = static_cast<ChoiceDialogState*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+    }
+    if (!state) return DefWindowProcW(window, message, wParam, lParam);
+    switch (message) {
+        case WM_CREATE: {
+            state->titleFont = CreateFontW(-20, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                                            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            state->normalFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            state->listBrush = CreateSolidBrush(RGB(24, 28, 35));
+            const int listTop = state->detail.empty() ? 58 : 82;
+            // Every click toggles one monitor. Requiring Ctrl here is easy to miss in a compact popup.
+            const DWORD selectionStyle = state->multiple ? LBS_MULTIPLESEL : 0;
+            state->list = CreateWindowExW(0, L"LISTBOX", nullptr,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | selectionStyle,
+                20, listTop, 500, state->height - listTop - 70, window,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChoiceListId)), GetModuleHandleW(nullptr), nullptr);
+            SendMessageW(state->list, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SetWindowTheme(state->list, L"DarkMode_Explorer", nullptr);
+            SendMessageW(state->list, LB_SETITEMHEIGHT, 0, 28);
+            for (const auto& item : state->items) SendMessageW(state->list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+            if (state->multiple) {
+                for (std::size_t index = 0; index < state->items.size() && index < 32; ++index) {
+                    if ((state->resultMask & (1u << index)) != 0) {
+                        SendMessageW(state->list, LB_SETSEL, TRUE, static_cast<LPARAM>(index));
+                    }
+                }
+            } else if (state->result >= 0) {
+                SendMessageW(state->list, LB_SETCURSEL, static_cast<WPARAM>(state->result), 0);
+            }
+            HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                          320, state->height - 54, 90, 36, window,
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), GetModuleHandleW(nullptr), nullptr);
+            HWND accept = CreateWindowExW(0, L"BUTTON", L"Select", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                          422, state->height - 54, 98, 36, window,
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), GetModuleHandleW(nullptr), nullptr);
+            SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SendMessageW(accept, WM_SETFONT, reinterpret_cast<WPARAM>(state->normalFont), TRUE);
+            SetFocus(state->list);
+            ApplyDialogChrome(window);
+            return 0;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDCANCEL) { state->done = true; return 0; }
+            if (LOWORD(wParam) == IDOK ||
+                (LOWORD(wParam) == kChoiceListId && HIWORD(wParam) == LBN_DBLCLK)) {
+                if (state->multiple) {
+                    std::uint32_t mask = 0;
+                    for (std::size_t index = 0; index < state->items.size() && index < 32; ++index) {
+                        if (SendMessageW(state->list, LB_GETSEL, static_cast<WPARAM>(index), 0) > 0) mask |= 1u << index;
+                    }
+                    state->resultMask = mask;
+                    state->accepted = true;
+                    state->done = true;
+                    return 0;
+                }
+                const LRESULT selected = SendMessageW(state->list, LB_GETCURSEL, 0, 0);
+                if (selected != LB_ERR) {
+                    state->result = static_cast<int>(selected);
+                    state->accepted = true;
+                    state->done = true;
+                } else {
+                    MessageBeep(MB_ICONWARNING);
+                }
+                return 0;
+            }
+            break;
+        case WM_DRAWITEM: {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (!item) return FALSE;
+            DrawDialogButton(*item, item->CtlID == IDOK ? L"Select" : L"Cancel", item->CtlID == IDOK, state->normalFont);
+            return TRUE;
+        }
+        case WM_CTLCOLORLISTBOX: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, RGB(224, 229, 238));
+            SetBkColor(dc, RGB(24, 28, 35));
+            return reinterpret_cast<LRESULT>(state->listBrush);
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            HDC dc = BeginPaint(window, &paint);
+            RECT client{};
+            GetClientRect(window, &client);
+            HBRUSH brush = CreateSolidBrush(RGB(15, 17, 22));
+            FillRect(dc, &client, brush);
+            DeleteObject(brush);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, RGB(242, 245, 251));
+            HGDIOBJ oldFont = SelectObject(dc, state->titleFont);
+            RECT title{20, 14, 520, 49};
+            DrawTextW(dc, state->title.c_str(), -1, &title, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            if (!state->detail.empty()) {
+                SelectObject(dc, state->normalFont);
+                SetTextColor(dc, RGB(128, 138, 154));
+                RECT detail{20, 46, 520, 78};
+                DrawTextW(dc, state->detail.c_str(), -1, &detail, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            }
+            SelectObject(dc, oldFont);
+            EndPaint(window, &paint);
+            return 0;
+        }
+        case WM_ERASEBKGND: return 1;
+        case WM_CLOSE: state->done = true; return 0;
+        case WM_DESTROY:
+            if (state->titleFont) DeleteObject(state->titleFont);
+            if (state->normalFont) DeleteObject(state->normalFont);
+            if (state->listBrush) DeleteObject(state->listBrush);
+            state->titleFont = nullptr; state->normalFont = nullptr; state->listBrush = nullptr;
+            return 0;
+        default: break;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
 }
 
 std::wstring GetLocalAppDataDirectory() {
@@ -91,6 +403,16 @@ std::wstring GetDefaultScreenshotDirectory() {
     const auto pictures = KnownFolder(FOLDERID_Pictures);
     if (!pictures.empty()) return (std::filesystem::path(pictures) / L"Luna Capture").wstring();
     return (std::filesystem::path(GetLocalAppDataDirectory()) / L"Screenshots").wstring();
+}
+
+std::wstring GetDefaultRecordingDirectory() {
+    const auto videos = KnownFolder(FOLDERID_Videos);
+    if (!videos.empty()) return (std::filesystem::path(videos) / L"Luna Capture").wstring();
+    return (std::filesystem::path(GetLocalAppDataDirectory()) / L"Recordings").wstring();
+}
+
+std::wstring GetSoundLibraryDirectory() {
+    return (std::filesystem::path(GetLocalAppDataDirectory()) / L"Sounds").wstring();
 }
 
 std::wstring GetExecutablePath() {
@@ -156,6 +478,245 @@ bool ChooseFolder(HWND owner, const std::wstring& initialPath, std::wstring& sel
     }
     dialog->Release();
     return accepted;
+}
+
+bool ChooseWaveFile(HWND owner, std::wstring& selectedPath) {
+    IFileOpenDialog* dialog = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+    dialog->SetTitle(L"Import notification sound");
+    const COMDLG_FILTERSPEC filters[] = {{L"Wave audio (*.wav)", L"*.wav"}};
+    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    dialog->SetDefaultExtension(L"wav");
+
+    bool accepted = false;
+    if (SUCCEEDED(dialog->Show(owner))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item))) {
+            PWSTR raw = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) && raw) {
+                selectedPath = raw;
+                CoTaskMemFree(raw);
+                accepted = true;
+            }
+            item->Release();
+        }
+    }
+    dialog->Release();
+    return accepted;
+}
+
+bool PromptForInteger(HWND owner, const std::wstring& title, const std::wstring& detail,
+                      int initialValue, int minimum, int maximum, int& selectedValue) {
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = NumericDialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kNumericDialogClass;
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+    NumericDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.minimum = minimum;
+    state.maximum = maximum;
+    state.result = (std::max)(minimum, (std::min)(maximum, initialValue));
+    RECT work{};
+    HMONITOR monitor = MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    if (GetMonitorInfoW(monitor, &monitorInfo)) work = monitorInfo.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    const int x = work.left + ((work.right - work.left) - 430) / 2;
+    const int y = work.top + ((work.bottom - work.top) - 220) / 2;
+    HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW, kNumericDialogClass, title.c_str(), WS_POPUP,
+                                  x, y, 430, 220, owner, nullptr, GetModuleHandleW(nullptr), &state);
+    if (!dialog) return false;
+    EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    while (!state.done && IsWindow(dialog)) {
+        MSG message{};
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status <= 0) {
+            if (status == 0) PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_ESCAPE) {
+            state.done = true;
+            continue;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_RETURN) {
+            SendMessageW(dialog, WM_COMMAND, IDOK, 0);
+            continue;
+        }
+        if (!IsDialogMessageW(dialog, &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    if (IsWindow(dialog)) DestroyWindow(dialog);
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
+    if (state.accepted) selectedValue = state.result;
+    return state.accepted;
+}
+
+bool ChooseIntegerPreset(HWND owner, const std::wstring& title, const std::wstring& detail,
+                         const std::vector<IntegerPreset>& presets, int initialValue,
+                         int minimum, int maximum, int& selectedValue, bool allowCustom) {
+    if (presets.empty()) return false;
+    std::vector<std::wstring> labels;
+    labels.reserve(presets.size() + (allowCustom ? 1u : 0u));
+    int current = -1;
+    for (std::size_t index = 0; index < presets.size(); ++index) {
+        labels.push_back(presets[index].label);
+        if (presets[index].value == initialValue) current = static_cast<int>(index);
+    }
+    if (allowCustom) {
+        labels.push_back(L"Custom value…  ·  type an exact number");
+        if (current < 0) current = static_cast<int>(presets.size());
+    } else if (current < 0) {
+        current = 0;
+    }
+    const int choice = ChooseNamedItem(owner, labels, current, title, detail);
+    if (choice < 0) return false;
+    if (choice < static_cast<int>(presets.size())) {
+        selectedValue = presets[static_cast<std::size_t>(choice)].value;
+        return true;
+    }
+    int custom = (std::max)(minimum, (std::min)(maximum, initialValue));
+    if (!PromptForInteger(owner, title + L" · custom", detail, custom, minimum, maximum, custom)) return false;
+    selectedValue = custom;
+    return true;
+}
+
+int ChooseNamedItem(HWND owner, const std::vector<std::wstring>& items, int selectedIndex,
+                    const std::wstring& title, const std::wstring& detail) {
+    if (items.empty()) return -1;
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = ChoiceDialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kChoiceDialogClass;
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return -1;
+    ChoiceDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.items = items;
+    state.result = selectedIndex >= 0 && selectedIndex < static_cast<int>(items.size()) ? selectedIndex : 0;
+    state.height = (std::max)(230, (std::min)(540, 128 + static_cast<int>(items.size()) * 30 + (detail.empty() ? 0 : 24)));
+    RECT work{};
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    if (GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitorInfo)) work = monitorInfo.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    const int x = work.left + ((work.right - work.left) - 540) / 2;
+    const int y = work.top + ((work.bottom - work.top) - state.height) / 2;
+    HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW, kChoiceDialogClass, title.c_str(), WS_POPUP,
+                                  x, y, 540, state.height, owner, nullptr, GetModuleHandleW(nullptr), &state);
+    if (!dialog) return -1;
+    EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    while (!state.done && IsWindow(dialog)) {
+        MSG message{};
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status <= 0) {
+            if (status == 0) PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_ESCAPE) {
+            state.done = true; continue;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_RETURN) {
+            SendMessageW(dialog, WM_COMMAND, IDOK, 0); continue;
+        }
+        if (!IsDialogMessageW(dialog, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
+    }
+    if (IsWindow(dialog)) DestroyWindow(dialog);
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
+    return state.accepted ? state.result : -1;
+}
+
+bool ChooseMultipleNamedItems(HWND owner, const std::vector<std::wstring>& items, std::uint32_t initialMask,
+                              const std::wstring& title, const std::wstring& detail,
+                              std::uint32_t& selectedMask) {
+    if (items.empty() || items.size() > 32) return false;
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = ChoiceDialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kChoiceDialogClass;
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    ChoiceDialogState state;
+    state.title = title;
+    state.detail = detail;
+    state.items = items;
+    state.multiple = true;
+    state.resultMask = initialMask;
+    state.height = (std::max)(250, (std::min)(560, 152 + static_cast<int>(items.size()) * 30));
+    RECT work{};
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    if (GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitorInfo)) work = monitorInfo.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    const int x = work.left + ((work.right - work.left) - 540) / 2;
+    const int y = work.top + ((work.bottom - work.top) - state.height) / 2;
+    HWND dialog = CreateWindowExW(WS_EX_TOOLWINDOW, kChoiceDialogClass, title.c_str(), WS_POPUP,
+                                  x, y, 540, state.height, owner, nullptr, GetModuleHandleW(nullptr), &state);
+    if (!dialog) return false;
+    EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    UpdateWindow(dialog);
+    while (!state.done && IsWindow(dialog)) {
+        MSG message{};
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status <= 0) {
+            if (status == 0) PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_ESCAPE) {
+            state.done = true; continue;
+        }
+        if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) && message.wParam == VK_RETURN) {
+            SendMessageW(dialog, WM_COMMAND, IDOK, 0); continue;
+        }
+        if (!IsDialogMessageW(dialog, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
+    }
+    if (IsWindow(dialog)) DestroyWindow(dialog);
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
+    if (state.accepted) selectedMask = state.resultMask;
+    return state.accepted;
+}
+
+bool ImportSoundToLibrary(const std::wstring& sourcePath, std::wstring& importedPath) {
+    std::error_code ec;
+    const std::filesystem::path source(sourcePath);
+    std::wstring extension = source.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    if (extension != L".wav" || !std::filesystem::is_regular_file(source, ec)) return false;
+
+    const std::filesystem::path library(GetSoundLibraryDirectory());
+    if (!EnsureDirectoryExists(library.wstring())) return false;
+    std::wstring stem = SanitizeFilenamePrefix(source.stem().wstring());
+    if (stem.empty()) stem = L"Notification";
+    std::filesystem::path destination = library / (stem + L".wav");
+    for (int suffix = 2; std::filesystem::exists(destination, ec) && suffix < 1000; ++suffix) {
+        if (std::filesystem::equivalent(source, destination, ec) && !ec) {
+            importedPath = destination.wstring();
+            return true;
+        }
+        ec.clear();
+        destination = library / (stem + L" " + std::to_wstring(suffix) + L".wav");
+    }
+    ec.clear();
+    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) return false;
+    importedPath = destination.wstring();
+    return true;
 }
 
 
@@ -320,6 +881,68 @@ RECT GetVirtualDesktopRect() {
     rect.right = rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
     rect.bottom = rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
     return rect;
+}
+
+std::vector<AudioWindowInfo> EnumerateAudioWindows(HWND applicationWindow) {
+    struct Context {
+        HWND excluded = nullptr;
+        std::vector<AudioWindowInfo> windows;
+    } context{applicationWindow, {}};
+    EnumWindows([](HWND window, LPARAM value) -> BOOL {
+        auto& state = *reinterpret_cast<Context*>(value);
+        if (!window || window == state.excluded || !IsWindowVisible(window) || GetAncestor(window, GA_ROOT) != window) return TRUE;
+        const LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        if ((style & WS_EX_TOOLWINDOW) != 0) return TRUE;
+        wchar_t title[512]{};
+        const int titleLength = GetWindowTextW(window, title, static_cast<int>(std::size(title)));
+        if (titleLength <= 0) return TRUE;
+        DWORD processId = 0;
+        GetWindowThreadProcessId(window, &processId);
+        if (!processId || processId == GetCurrentProcessId()) return TRUE;
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+        if (!process) return TRUE;
+        wchar_t path[32768]{};
+        DWORD pathLength = static_cast<DWORD>(std::size(path));
+        const bool havePath = QueryFullProcessImageNameW(process, 0, path, &pathLength) != FALSE;
+        CloseHandle(process);
+        if (!havePath || !pathLength) return TRUE;
+        AudioWindowInfo info;
+        info.processId = processId;
+        info.window = window;
+        info.title.assign(title, static_cast<std::size_t>(titleLength));
+        info.executableName = std::filesystem::path(std::wstring(path, pathLength)).filename().wstring();
+        for (const auto& existing : state.windows) if (existing.processId == processId) return TRUE;
+        state.windows.push_back(std::move(info));
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&context));
+    return context.windows;
+}
+
+void AppendDiagnosticLog(const std::wstring& message) {
+    static std::mutex logMutex;
+    std::lock_guard lock(logMutex);
+    const std::wstring directory = GetLocalAppDataDirectory();
+    if (!EnsureDirectoryExists(directory)) return;
+    const std::wstring path = (std::filesystem::path(directory) / L"capture.log").wstring();
+    HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    SYSTEMTIME time{};
+    GetLocalTime(&time);
+    wchar_t prefix[64]{};
+    swprintf_s(prefix, L"[%04u-%02u-%02u %02u:%02u:%02u.%03u] ", time.wYear, time.wMonth, time.wDay,
+               time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+    const std::wstring line = std::wstring(prefix) + message + L"\r\n";
+    const int bytesNeeded = WideCharToMultiByte(CP_UTF8, 0, line.c_str(), static_cast<int>(line.size()),
+                                                nullptr, 0, nullptr, nullptr);
+    if (bytesNeeded > 0) {
+        std::string utf8(static_cast<std::size_t>(bytesNeeded), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, line.c_str(), static_cast<int>(line.size()),
+                            utf8.data(), bytesNeeded, nullptr, nullptr);
+        DWORD written = 0;
+        WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+    }
+    CloseHandle(file);
 }
 
 bool CopyFrameToClipboard(HWND owner, const FrameBuffer& frame) {

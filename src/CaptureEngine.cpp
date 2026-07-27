@@ -5,6 +5,7 @@
 #include "WinUtil.hpp"
 
 #include <Windows.h>
+#include <avrt.h>
 #include <dwmapi.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
@@ -113,11 +114,13 @@ bool CropFrameToDesktopRect(FrameBuffer& frame, const RECT& cropRect, std::wstri
 CaptureEngine::CaptureEngine(HWND notifyWindow) : notifyWindow_(notifyWindow) {
     stopEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     wakeEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    pausedEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     QueryPerformanceFrequency(&qpcFrequency_);
 }
 
 CaptureEngine::~CaptureEngine() {
     Stop();
+    if (pausedEvent_) CloseHandle(pausedEvent_);
     if (wakeEvent_) CloseHandle(wakeEvent_);
     if (stopEvent_) CloseHandle(stopEvent_);
 }
@@ -126,11 +129,17 @@ std::vector<OutputInfo> CaptureEngine::EnumerateOutputs() { return EnumerateOutp
 
 bool CaptureEngine::Start(const AppSettings& settings) {
     if (running_.exchange(true)) return true;
+    displayChangePending_.store(false, std::memory_order_release);
+    pausedForRecording_.store(false, std::memory_order_release);
+    previewInFlight_.store(false, std::memory_order_release);
     ResetEvent(stopEvent_);
+    ResetEvent(pausedEvent_);
     {
         std::lock_guard lock(stateMutex_);
         activeSettings_ = settings;
         requests_.clear();
+        previewPending_ = false;
+        previewMonitor_ = nullptr;
     }
     {
         std::lock_guard lock(saveMutex_);
@@ -144,6 +153,7 @@ bool CaptureEngine::Start(const AppSettings& settings) {
 
 void CaptureEngine::Stop() {
     if (!running_.exchange(false)) return;
+    pausedForRecording_.store(false, std::memory_order_release);
     ready_.store(false, std::memory_order_release);
     SetEvent(stopEvent_);
     SetEvent(wakeEvent_);
@@ -155,6 +165,28 @@ void CaptureEngine::Stop() {
     saveCv_.notify_all();
     if (saveThread_.joinable()) saveThread_.join();
     ResetDuplicators();
+    previewInFlight_.store(false, std::memory_order_release);
+    {
+        std::lock_guard lock(previewPoolMutex_);
+        recycledPreview_.reset();
+    }
+}
+
+bool CaptureEngine::PauseForRecording() {
+    if (!running_.load(std::memory_order_acquire)) return false;
+    pausedForRecording_.store(true, std::memory_order_release);
+    ResetEvent(pausedEvent_);
+    previewInFlight_.store(false, std::memory_order_release);
+    SetEvent(wakeEvent_);
+    return WaitForSingleObject(pausedEvent_, 5000) == WAIT_OBJECT_0;
+}
+
+void CaptureEngine::ResumeAfterRecording(const AppSettings& settings) {
+    if (!running_.load(std::memory_order_acquire)) return;
+    UpdateSettings(settings);
+    pausedForRecording_.store(false, std::memory_order_release);
+    ResetEvent(pausedEvent_);
+    SetEvent(wakeEvent_);
 }
 
 void CaptureEngine::UpdateSettings(const AppSettings& settings) {
@@ -162,9 +194,15 @@ void CaptureEngine::UpdateSettings(const AppSettings& settings) {
     activeSettings_ = settings;
 }
 
+void CaptureEngine::NotifyDisplayChange() {
+    if (!running_.load(std::memory_order_acquire)) return;
+    displayChangePending_.store(true, std::memory_order_release);
+    SetEvent(wakeEvent_);
+}
+
 bool CaptureEngine::RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, HWND targetWindow,
                                    const std::wstring& filenamePrefix, const AppSettings& settings) {
-    if (!running_.load() || !ready_.load(std::memory_order_acquire)) return false;
+    if (!running_.load() || pausedForRecording_.load(std::memory_order_acquire)) return false;
     CaptureRequest request;
     request.settings = settings;
     request.mode = mode;
@@ -180,6 +218,45 @@ bool CaptureEngine::RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, 
     }
     SetEvent(wakeEvent_);
     return true;
+}
+
+bool CaptureEngine::RequestPreview(HMONITOR preferredMonitor) {
+    if (!running_.load(std::memory_order_acquire) || !ready_.load(std::memory_order_acquire) ||
+        pausedForRecording_.load(std::memory_order_acquire) ||
+        !previewConsumerActive_.load(std::memory_order_acquire)) return false;
+    if (previewInFlight_.exchange(true, std::memory_order_acq_rel)) return false;
+    {
+        std::lock_guard lock(stateMutex_);
+        if (previewPending_) {
+            previewInFlight_.store(false, std::memory_order_release);
+            return false;
+        }
+        previewMonitor_ = preferredMonitor;
+        previewPending_ = true;
+    }
+    SetEvent(wakeEvent_);
+    return true;
+}
+
+void CaptureEngine::SetPreviewConsumerActive(bool active) {
+    if (previewConsumerActive_.exchange(active, std::memory_order_acq_rel) == active) return;
+    if (!active) {
+        std::lock_guard lock(previewPoolMutex_);
+        recycledPreview_.reset();
+    }
+}
+
+std::unique_ptr<PreviewFrame> CaptureEngine::TakePreviewFrame() {
+    std::lock_guard lock(previewPoolMutex_);
+    if (recycledPreview_) return std::move(recycledPreview_);
+    return std::make_unique<PreviewFrame>();
+}
+
+void CaptureEngine::RecyclePreviewFrame(std::unique_ptr<PreviewFrame> frame) {
+    if (!frame || frame->liveRecording || !running_.load(std::memory_order_acquire) ||
+        !previewConsumerActive_.load(std::memory_order_acquire)) return;
+    std::lock_guard lock(previewPoolMutex_);
+    if (!recycledPreview_) recycledPreview_ = std::move(frame);
 }
 
 void CaptureEngine::SaveEditedFrame(FrameBuffer frame, const AppSettings& settings, bool, const std::wstring& outputPath, const std::wstring& filenamePrefix) {
@@ -211,10 +288,24 @@ void CaptureEngine::SetReady(bool ready, const std::wstring& detail) {
 
 void CaptureEngine::CaptureThreadMain() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    DWORD mmcssTaskIndex = 0;
+    HANDLE mmcssHandle = AvSetMmThreadCharacteristicsW(L"Capture", &mmcssTaskIndex);
+    if (mmcssHandle) AvSetMmThreadPriority(mmcssHandle, AVRT_PRIORITY_HIGH);
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     SetReady(false, L"Starting DXGI capture…");
 
     while (WaitForSingleObject(stopEvent_, 0) != WAIT_OBJECT_0) {
+        if (pausedForRecording_.load(std::memory_order_acquire)) {
+            ready_.store(false, std::memory_order_release);
+            ResetDuplicators();
+            SetEvent(pausedEvent_);
+            WaitForSingleObject(wakeEvent_, 50);
+            continue;
+        }
+        if (displayChangePending_.exchange(false, std::memory_order_acq_rel)) {
+            SetReady(false, L"Display mode changed; rebuilding fullscreen capture…");
+            ResetDuplicators();
+        }
         if (duplicators_.empty()) {
             std::wstring error;
             SetReady(false, L"Connecting displays…");
@@ -228,8 +319,6 @@ void CaptureEngine::CaptureThreadMain() {
             }
             SetReady(true, L"All displays are warm and ready");
         }
-
-        ProcessPendingRequests();
 
         bool lost = false;
         for (auto& state : duplicators_) {
@@ -250,10 +339,13 @@ void CaptureEngine::CaptureThreadMain() {
         }
 
         ProcessPendingRequests();
+        ProcessPreviewRequest();
+        ReleaseIdleStagingTextures();
         WaitForSingleObject(wakeEvent_, 1);
     }
 
     ResetDuplicators();
+    if (mmcssHandle) AvRevertMmThreadCharacteristics(mmcssHandle);
     CoUninitialize();
 }
 
@@ -348,7 +440,15 @@ bool CaptureEngine::InitializeDuplicator(DuplicatorState& state, std::wstring& e
                                &state.device, &created, &state.context);
     }
     if (FAILED(hr)) { error = L"D3D11CreateDevice: " + HResultText(hr); return false; }
-    hr = state.output->DuplicateOutput(state.device.Get(), &state.duplication);
+    ComPtr<IDXGIOutput5> output5;
+    if (SUCCEEDED(state.output.As(&output5))) {
+        constexpr DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM};
+        hr = output5->DuplicateOutput1(state.device.Get(), 0, static_cast<UINT>(std::size(formats)),
+                                       formats, &state.duplication);
+    } else {
+        hr = E_NOINTERFACE;
+    }
+    if (FAILED(hr)) hr = state.output->DuplicateOutput(state.device.Get(), &state.duplication);
     if (FAILED(hr)) { error = L"DuplicateOutput: " + HResultText(hr); return false; }
     return true;
 }
@@ -356,8 +456,8 @@ bool CaptureEngine::InitializeDuplicator(DuplicatorState& state, std::wstring& e
 void CaptureEngine::ResetDuplicators() { duplicators_.clear(); }
 
 bool CaptureEngine::EnsureFrameTextures(DuplicatorState& state, const D3D11_TEXTURE2D_DESC& sourceDesc,
-                                        std::wstring& error) {
-    if (state.latestTexture && state.stagingTexture && state.frameDesc.Width == sourceDesc.Width &&
+                                         std::wstring& error) {
+    if (state.latestTexture && state.frameDesc.Width == sourceDesc.Width &&
         state.frameDesc.Height == sourceDesc.Height && state.frameDesc.Format == sourceDesc.Format) return true;
 
     D3D11_TEXTURE2D_DESC latest = sourceDesc;
@@ -373,17 +473,43 @@ bool CaptureEngine::EnsureFrameTextures(DuplicatorState& state, const D3D11_TEXT
     HRESULT hr = state.device->CreateTexture2D(&latest, nullptr, &latestTexture);
     if (FAILED(hr)) { error = L"Create GPU texture: " + HResultText(hr); return false; }
 
-    D3D11_TEXTURE2D_DESC staging = latest;
-    staging.Usage = D3D11_USAGE_STAGING;
-    staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ComPtr<ID3D11Texture2D> stagingTexture;
-    hr = state.device->CreateTexture2D(&staging, nullptr, &stagingTexture);
-    if (FAILED(hr)) { error = L"Create staging texture: " + HResultText(hr); return false; }
     state.latestTexture = std::move(latestTexture);
-    state.stagingTexture = std::move(stagingTexture);
+    state.stagingTexture.Reset();
     state.frameDesc = latest;
+    state.previewScaler.Reset();
+    state.stagingLastUsed = 0;
     state.hasFrame = false;
     return true;
+}
+
+bool CaptureEngine::EnsureStagingTexture(DuplicatorState& state, std::wstring& error) {
+    state.stagingLastUsed = GetTickCount64();
+    if (state.stagingTexture) return true;
+    if (!state.latestTexture || !state.frameDesc.Width || !state.frameDesc.Height) {
+        error = L"Display has no cached frame";
+        return false;
+    }
+    D3D11_TEXTURE2D_DESC staging = state.frameDesc;
+    staging.Usage = D3D11_USAGE_STAGING;
+    staging.BindFlags = 0;
+    staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    staging.MiscFlags = 0;
+    const HRESULT hr = state.device->CreateTexture2D(&staging, nullptr, &state.stagingTexture);
+    if (FAILED(hr)) {
+        error = L"Create staging texture: " + HResultText(hr);
+        return false;
+    }
+    return true;
+}
+
+void CaptureEngine::ReleaseIdleStagingTextures() {
+    const ULONGLONG now = GetTickCount64();
+    for (auto& state : duplicators_) {
+        if (state->stagingTexture && state->stagingLastUsed && now - state->stagingLastUsed >= 5000) {
+            state->stagingTexture.Reset();
+            state->stagingLastUsed = 0;
+        }
+    }
 }
 
 bool CaptureEngine::PumpOneFrame(DuplicatorState& state, DWORD timeoutMs, std::wstring& error) {
@@ -412,7 +538,8 @@ CaptureEngine::DuplicatorState* CaptureEngine::FindState(HMONITOR monitor) {
 }
 
 bool CaptureEngine::ReadStateToCpu(DuplicatorState& state, FrameBuffer& frame, std::wstring& error, bool queueCopy) {
-    if (!state.hasFrame || !state.latestTexture || !state.stagingTexture) { error = L"Display has no cached frame"; return false; }
+    if (!state.hasFrame || !state.latestTexture) { error = L"Display has no cached frame"; return false; }
+    if (!EnsureStagingTexture(state, error)) return false;
     if (queueCopy) state.context->CopyResource(state.stagingTexture.Get(), state.latestTexture.Get());
     D3D11_MAPPED_SUBRESOURCE mapped{};
     const HRESULT hr = state.context->Map(state.stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
@@ -482,6 +609,44 @@ void CaptureEngine::ProcessPendingRequests() {
     }
 }
 
+void CaptureEngine::ProcessPreviewRequest() {
+    HMONITOR requested = nullptr;
+    {
+        std::lock_guard lock(stateMutex_);
+        if (!previewPending_) return;
+        requested = previewMonitor_;
+        previewPending_ = false;
+    }
+    auto* state = FindState(requested);
+    const auto cancelPreview = [this]() { previewInFlight_.store(false, std::memory_order_release); };
+    if (!state || !state->latestTexture) { cancelPreview(); return; }
+    std::wstring error;
+    if (!EnsureStagingTexture(*state, error)) { cancelPreview(); return; }
+
+    state->context->CopyResource(state->stagingTexture.Get(), state->latestTexture.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(state->context->Map(state->stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+        cancelPreview();
+        return;
+    }
+
+    constexpr UINT kPreviewWidth = 640;
+    constexpr UINT kPreviewHeight = 360;
+    auto preview = TakePreviewFrame();
+    preview->liveRecording = false;
+    const auto* source = static_cast<const std::uint8_t*>(mapped.pData);
+    const bool scaled = state->previewScaler.Scale(source, state->frameDesc.Width, state->frameDesc.Height,
+                                                    mapped.RowPitch, kPreviewWidth, kPreviewHeight,
+                                                    preview->bgra, preview->width, preview->height, preview->stride);
+    state->context->Unmap(state->stagingTexture.Get(), 0);
+    if (!scaled) { RecyclePreviewFrame(std::move(preview)); cancelPreview(); return; }
+    auto* raw = preview.release();
+    if (!PostMessageW(notifyWindow_, WM_APP_PREVIEW_FRAME, 0, reinterpret_cast<LPARAM>(raw))) {
+        delete raw;
+        cancelPreview();
+    }
+}
+
 void CaptureEngine::ProcessCaptureRequest(CaptureRequest request) {
     FrameBuffer frame;
     HMONITOR feedbackMonitor = request.preferredMonitor;
@@ -503,10 +668,17 @@ void CaptureEngine::ProcessCaptureRequest(CaptureRequest request) {
 
     if (request.mode == CaptureMode::ActiveDisplay) {
         auto* state = FindState(request.preferredMonitor);
-        if (!state || !state->hasFrame || !state->stagingTexture || !state->latestTexture) {
+        if (!state || !state->hasFrame || !state->latestTexture) {
             EngineEvent event;
             event.type = EngineEventType::Error;
             event.detail = L"No active display frame is available";
+            PostEngineEvent(std::move(event));
+            return;
+        }
+        if (!EnsureStagingTexture(*state, error)) {
+            EngineEvent event;
+            event.type = EngineEventType::Error;
+            event.detail = error;
             PostEngineEvent(std::move(event));
             return;
         }

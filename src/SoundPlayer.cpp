@@ -1,7 +1,10 @@
 #include "SoundPlayer.hpp"
 
+#include <mmreg.h>
+
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 
 namespace {
 std::uint32_t ReadU32(const std::uint8_t* data) {
@@ -26,14 +29,28 @@ SoundPlayer::~SoundPlayer() {
 }
 
 bool SoundPlayer::Initialize(HINSTANCE instance, int resourceId) {
-    Shutdown();
-
     HRSRC resource = FindResourceW(instance, MAKEINTRESOURCEW(resourceId), L"WAVE");
     if (!resource) return false;
     HGLOBAL loaded = LoadResource(instance, resource);
     if (!loaded) return false;
     const auto* bytes = static_cast<const std::uint8_t*>(LockResource(loaded));
     const DWORD size = SizeofResource(instance, resource);
+    return LoadWaveBytes(bytes, size);
+}
+
+bool SoundPlayer::LoadFile(const std::wstring& path) {
+    std::ifstream stream(path, std::ios::binary | std::ios::ate);
+    if (!stream) return false;
+    const std::streamoff length = stream.tellg();
+    if (length < 44 || length > static_cast<std::streamoff>(64 * 1024 * 1024)) return false;
+    stream.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+    if (!stream.read(reinterpret_cast<char*>(bytes.data()), length)) return false;
+    return LoadWaveBytes(bytes.data(), bytes.size());
+}
+
+bool SoundPlayer::LoadWaveBytes(const std::uint8_t* bytes, std::size_t size) {
+    Shutdown();
     if (!bytes || size < 44 || !MatchFour(bytes, "RIFF") || !MatchFour(bytes + 8, "WAVE")) return false;
 
     const std::uint8_t* fmtData = nullptr;
@@ -65,7 +82,7 @@ bool SoundPlayer::Initialize(HINSTANCE instance, int resourceId) {
     format_.nBlockAlign = ReadU16(fmtData + 12);
     format_.wBitsPerSample = ReadU16(fmtData + 14);
     format_.cbSize = 0;
-    if (format_.wFormatTag != WAVE_FORMAT_PCM) return false;
+    if (format_.wFormatTag != WAVE_FORMAT_PCM && format_.wFormatTag != WAVE_FORMAT_IEEE_FLOAT) return false;
 
     audioData_.assign(waveData, waveData + waveSize);
     MMRESULT result = waveOutOpen(&waveOut_, WAVE_MAPPER, &format_, 0, 0, CALLBACK_NULL);

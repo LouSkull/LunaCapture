@@ -15,9 +15,22 @@ enum class TrayCommand : UINT {
     CaptureRegion,
     CaptureWindow,
     OpenFolder,
+    ToggleRecording,
+    ToggleReplay,
+    SaveReplay,
+    OpenReplayCenter,
+    OpenRecordings,
     ToggleSound,
     ToggleNotifications,
     Exit,
+    SaveReplayMonitor0,
+    SaveReplayMonitor1,
+    SaveReplayMonitor2,
+    SaveReplayMonitor3,
+    SaveReplayMonitor4,
+    SaveReplayMonitor5,
+    SaveReplayMonitor6,
+    SaveReplayMonitor7,
 };
 
 class TrayMenu {
@@ -27,7 +40,8 @@ public:
 
     bool Create(HINSTANCE instance, HWND notifyWindow);
     void Destroy();
-    void Show(POINT screenPoint, const AppSettings& settings);
+    void Show(POINT screenPoint, const AppSettings& settings, bool recording, bool replayBuffering,
+              std::uint32_t activeReplayMask);
     void Hide();
 
 private:

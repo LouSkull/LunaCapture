@@ -14,6 +14,7 @@ public:
     void ShowError(const std::wstring& message, int durationMs, HMONITOR monitor);
     void ShowMessage(const std::wstring& title, const std::wstring& detail, int durationMs, HMONITOR monitor);
     HWND Handle() const noexcept { return hwnd_; }
+    bool IsFullscreenPresentation() const noexcept { return fullscreenPresentation_; }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -42,6 +43,7 @@ private:
     HGDIOBJ backBufferOldBitmap_ = nullptr;
     void* backBufferPixels_ = nullptr;
     BYTE opacity_ = 255;
+    bool fullscreenPresentation_ = false;
     HFONT titleFont_ = nullptr;
     HFONT detailFont_ = nullptr;
 };

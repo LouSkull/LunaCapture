@@ -58,6 +58,8 @@ private:
     void UpdateToolbarRect();
     void SetTool(Tool tool);
     void UpdateHoveredWindow(POINT clientPoint);
+    RECT WindowChoicePanel() const;
+    RECT WindowChoiceButton(int index) const;
     void EraseAt(POINT point);
 
     // Color palette popup ("choose color through a nice palette").
@@ -94,6 +96,7 @@ private:
     ToolbarAction hoveredToolbar_ = ToolbarAction::None;
     HWND hoveredWindow_ = nullptr;
     RECT hoveredWindowRect_{};
+    bool windowChoicePending_ = false;
     ToolbarAction pressedToolbar_ = ToolbarAction::None;
     COLORREF currentColor_ = RGB(96, 176, 255);
     BYTE highlighterAlpha_ = 96;

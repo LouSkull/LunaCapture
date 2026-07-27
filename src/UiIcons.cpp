@@ -220,5 +220,27 @@ void DrawUiIcon(HDC dc, UiIcon icon, const RECT& bounds, COLORREF color, int str
         case UiIcon::Check:
             Polyline(c, Grid(c, {5, 12.8f, 10, 17.8f, 19, 6.5f}), false);
             break;
+        case UiIcon::Record:
+            RoundRect(c, 3, 4.5f, 18, 15, 2.4f);
+            Dot(c, 12, 12, 4.1f);
+            break;
+        case UiIcon::Replay: {
+            GraphicsPath path;
+            path.AddArc(c.P(4.2f, 4.2f).X, c.P(4.2f, 4.2f).Y, c.S(15.6f), c.S(15.6f), -42, 292);
+            Stroke(c, path);
+            Polyline(c, Grid(c, {4.2f, 5, 4.2f, 11, 10.2f, 11}), false);
+            Line(c, 12, 7.5f, 12, 12);
+            Line(c, 12, 12, 15.2f, 14);
+            break;
+        }
+        case UiIcon::Microphone:
+            RoundRect(c, 8.5f, 3, 7, 12, 3.5f);
+            Arc(c, 5.5f, 8, 13, 11, 0, 180);
+            Line(c, 12, 19, 12, 22);
+            Line(c, 8.5f, 22, 15.5f, 22);
+            break;
+        case UiIcon::Cursor:
+            Polyline(c, Grid(c, {5, 3.5f, 5, 19, 9.2f, 14.8f, 12, 21, 15, 19.6f, 12.1f, 13.8f, 18, 13.8f, 5, 3.5f}), true);
+            break;
     }
 }

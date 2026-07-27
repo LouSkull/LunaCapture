@@ -8,10 +8,12 @@ endif()
 add_executable(LunaCapture WIN32
     src/main.cpp
     src/App.cpp
+    src/AudioMixer.cpp
     src/CaptureEngine.cpp
     src/CoreUtils.cpp
     src/OverlayWindow.cpp
     src/RegionEditor.cpp
+    src/RecordingEngine.cpp
     src/SettingsStore.cpp
     src/SoundPlayer.cpp
     src/TrayMenu.cpp
@@ -52,9 +54,16 @@ target_link_libraries(LunaCapture PRIVATE
     winmm
     msimg32
     gdiplus
+    mfplat
+    mfreadwrite
+    mfuuid
+    avrt
+    mmdevapi
+    propsys
     user32
     gdi32
     advapi32
+    uxtheme
 )
 
 set_target_properties(LunaCapture PROPERTIES
@@ -80,6 +89,26 @@ if(BUILD_TESTING)
         target_compile_options(LunaShotCoreTests PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
     endif()
     add_test(NAME LunaShotCoreTests COMMAND LunaShotCoreTests)
+
+    add_executable(LunaShotRecordingSmoke EXCLUDE_FROM_ALL
+        tests/recording_smoke.cpp
+        src/AudioMixer.cpp
+        src/CaptureEngine.cpp
+        src/RecordingEngine.cpp
+        src/WinUtil.cpp
+        src/CoreUtils.cpp
+        src/WicEncoder.cpp
+    )
+    target_include_directories(LunaShotRecordingSmoke PRIVATE include)
+    target_compile_features(LunaShotRecordingSmoke PRIVATE cxx_std_20)
+    target_compile_definitions(LunaShotRecordingSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+    if(MSVC)
+        target_compile_options(LunaShotRecordingSmoke PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
+    endif()
+    target_link_libraries(LunaShotRecordingSmoke PRIVATE
+        d3d11 dxgi windowscodecs dwmapi shell32 shlwapi ole32 uuid user32 gdi32
+        mfplat mfreadwrite mfuuid avrt mmdevapi propsys uxtheme
+    )
 endif()
 
 install(TARGETS LunaCapture RUNTIME DESTINATION .)

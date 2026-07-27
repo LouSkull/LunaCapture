@@ -53,13 +53,13 @@ bool TrayMenu::Create(HINSTANCE instance, HWND notifyWindow) {
                             WS_POPUP, 0, 0, width_, 100, nullptr, nullptr, instance_, this);
     if (!hwnd_) return false;
     titleFont_ = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     normalFont_ = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                               DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    smallFont_ = CreateFontW(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+    smallFont_ = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     if (!titleFont_ || !normalFont_ || !smallFont_) {
         Destroy();
@@ -126,7 +126,8 @@ int TrayMenu::HitTest(POINT point) const {
     return -1;
 }
 
-void TrayMenu::Show(POINT screenPoint, const AppSettings& settings) {
+void TrayMenu::Show(POINT screenPoint, const AppSettings& settings, bool recording, bool replayBuffering,
+                    std::uint32_t activeReplayMask) {
     items_ = {
         {TrayCommand::Open, UiIcon::Home, L"Open Luna Capture", L"", false, false},
         {TrayCommand::CaptureActive, UiIcon::Monitor, L"Active display", FormatHotkey(settings.activeDisplayHotkey.modifiers, settings.activeDisplayHotkey.vk), true, false},
@@ -134,10 +135,28 @@ void TrayMenu::Show(POINT screenPoint, const AppSettings& settings) {
         {TrayCommand::CaptureRegion, UiIcon::Region, L"Region editor", FormatHotkey(settings.regionHotkey.modifiers, settings.regionHotkey.vk), false, false},
         {TrayCommand::CaptureWindow, UiIcon::Window, L"Active window", FormatHotkey(settings.activeWindowHotkey.modifiers, settings.activeWindowHotkey.vk), false, false},
         {TrayCommand::OpenFolder, UiIcon::Folder, L"Screenshot folder", L"", true, false},
+        {TrayCommand::ToggleRecording, UiIcon::Record, recording ? L"Stop recording" : L"Start recording", FormatHotkey(settings.recordingHotkey.modifiers, settings.recordingHotkey.vk), true, recording},
+        {TrayCommand::ToggleReplay, UiIcon::Replay, replayBuffering ? L"Stop replay buffer" : L"Start replay buffer", L"", false, replayBuffering},
+        {TrayCommand::OpenReplayCenter, UiIcon::Settings, L"Replay control center", L"", false, false},
+        {TrayCommand::SaveReplay, UiIcon::Save, L"Save all replay monitors", FormatHotkey(settings.replaySaveHotkey.modifiers, settings.replaySaveHotkey.vk), false, false},
+    };
+    if (replayBuffering) {
+        for (std::size_t index = 0; index < LUNASHOT_MAX_REPLAY_MONITORS; ++index) {
+            if ((activeReplayMask & (1u << index)) == 0) continue;
+            const auto& binding = settings.replayMonitorHotkeys[index];
+            const std::wstring shortcut = binding.vk ? FormatHotkey(binding.modifiers, binding.vk) : L"";
+            items_.push_back({static_cast<TrayCommand>(static_cast<UINT>(TrayCommand::SaveReplayMonitor0) +
+                                                           static_cast<UINT>(index)),
+                              UiIcon::Monitor, L"  Save Monitor " + std::to_wstring(index + 1), shortcut, false, false});
+        }
+    }
+    const std::vector<Item> tail = {
+        {TrayCommand::OpenRecordings, UiIcon::Folder, L"Recording folder", L"", false, false},
         {TrayCommand::ToggleSound, UiIcon::Sound, L"Capture sound", L"", true, settings.sound},
         {TrayCommand::ToggleNotifications, UiIcon::Bell, L"Notifications", L"", false, settings.notifications},
         {TrayCommand::Exit, UiIcon::Power, L"Exit", L"", true, false},
     };
+    items_.insert(items_.end(), tail.begin(), tail.end());
     int height = kTopPadding + kHeaderHeight + kBottomPadding + static_cast<int>(items_.size()) * rowHeight_;
     for (const auto& item : items_) if (item.separatorBefore) height += kSeparatorHeight;
     MONITORINFO monitor{sizeof(monitor)};

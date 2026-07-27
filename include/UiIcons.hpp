@@ -26,6 +26,10 @@ enum class UiIcon {
     Close,
     Minimize,
     Check,
+    Record,
+    Replay,
+    Microphone,
+    Cursor,
 };
 
 void DrawUiIcon(HDC dc, UiIcon icon, const RECT& bounds, COLORREF color, int stroke = 2);

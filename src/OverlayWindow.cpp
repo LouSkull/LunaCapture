@@ -5,6 +5,8 @@
 #include "UiIcons.hpp"
 #include "WinUtil.hpp"
 
+#include <dwmapi.h>
+
 #include <algorithm>
 
 namespace {
@@ -13,6 +15,20 @@ constexpr UINT_PTR kTimer = 1;
 constexpr int kSlideInMs = 110;
 constexpr int kFadeOutMs = 150;
 constexpr int kCornerRadius = 16;
+
+bool IsForegroundFullscreenOnMonitor(const MONITORINFO& monitorInfo, HWND overlay) {
+    const HWND foreground = GetForegroundWindow();
+    if (!foreground || foreground == overlay || !IsWindowVisible(foreground) || IsIconic(foreground)) return false;
+    const LONG_PTR style = GetWindowLongPtrW(foreground, GWL_STYLE);
+    if (IsZoomed(foreground) && (style & WS_OVERLAPPEDWINDOW) == WS_OVERLAPPEDWINDOW) return false;
+    RECT bounds{};
+    if (!GetWindowRect(foreground, &bounds)) return false;
+    constexpr int kTolerance = 3;
+    return bounds.left <= monitorInfo.rcMonitor.left + kTolerance &&
+           bounds.top <= monitorInfo.rcMonitor.top + kTolerance &&
+           bounds.right >= monitorInfo.rcMonitor.right - kTolerance &&
+           bounds.bottom >= monitorInfo.rcMonitor.bottom - kTolerance;
+}
 
 void Fill(HDC dc, const RECT& rect, COLORREF color) {
     HBRUSH brush = CreateSolidBrush(color);
@@ -48,7 +64,10 @@ bool OverlayWindow::Create(HINSTANCE instance) {
         Destroy();
         return false;
     }
-    SetWindowDisplayAffinity(hwnd_, WDA_NONE);
+    // Keep the notification out of a second screenshot taken while it is still visible.
+    if (!SetWindowDisplayAffinity(hwnd_, WDA_EXCLUDEFROMCAPTURE)) {
+        SetWindowDisplayAffinity(hwnd_, WDA_MONITOR);
+    }
     return true;
 }
 
@@ -64,10 +83,10 @@ bool OverlayWindow::CreateGraphics() {
     }
     backBufferOldBitmap_ = SelectObject(backBufferDc_, backBufferBitmap_);
     titleFont_ = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    detailFont_ = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+    detailFont_ = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
                               DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     if (!titleFont_ || !detailFont_) {
         DestroyGraphics();
@@ -116,15 +135,25 @@ void OverlayWindow::BeginShow(bool success, std::wstring title, std::wstring det
     holdDurationMs_ = (std::max)(650, (std::min)(3000, durationMs));
     MONITORINFO info{sizeof(info)};
     if (!monitor) monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    GetMonitorInfoW(monitor, &info);
-    basePosition_.x = info.rcWork.right - width_ - 18;
-    basePosition_.y = info.rcWork.top + 18;
+    if (!GetMonitorInfoW(monitor, &info)) return;
+    fullscreenPresentation_ = IsForegroundFullscreenOnMonitor(info, hwnd_);
+    const RECT placement = fullscreenPresentation_ ? info.rcMonitor : info.rcWork;
+    basePosition_.x = placement.right - width_ - (fullscreenPresentation_ ? 26 : 18);
+    basePosition_.y = placement.top + (fullscreenPresentation_ ? 26 : 18);
     startedAt_ = GetTickCount64();
     opacity_ = 255;
+
+    // Rebind the z-order instead of trusting a stale TOPMOST band after an exclusive/independent-flip
+    // transition. SW_SHOWNOACTIVATE and WS_EX_NOACTIVATE preserve the game's foreground ownership.
+    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    if (fullscreenPresentation_) {
+        SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
     SetWindowPos(hwnd_, HWND_TOPMOST, basePosition_.x + 20, basePosition_.y, width_, height_,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    InvalidateRect(hwnd_, nullptr, FALSE);
-    UpdateWindow(hwnd_);
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING);
+    RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    if (fullscreenPresentation_) DwmFlush();
     SetTimer(hwnd_, kTimer, 16, nullptr);
 }
 
@@ -151,7 +180,7 @@ void OverlayWindow::Tick() {
     }
     opacity_ = alpha;
     SetWindowPos(hwnd_, HWND_TOPMOST, x, basePosition_.y, 0, 0,
-                  SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                  SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING);
     InvalidateRect(hwnd_, nullptr, FALSE);
     UpdateWindow(hwnd_);
 }
