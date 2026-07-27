@@ -37,6 +37,13 @@ echo  Repository : %REMOTE%
 echo  Branch     : %BRANCH%
 echo.
 
+rem Ask GitHub what it actually has before comparing. Without this the ahead and
+rem behind counts below are answered from a stale cached ref, so edits made on
+rem the website are invisible and the script wrongly reports "already matches".
+echo  Checking GitHub...
+git fetch --quiet origin
+echo.
+
 rem --------------------------------------------------------- what changed ---
 git status --short
 echo.
@@ -45,21 +52,36 @@ rem Anything added, edited or deleted since the last commit?
 set "HAS_CHANGES="
 for /f "delims=" %%s in ('git status --porcelain') do set "HAS_CHANGES=1"
 
-rem Commits made earlier that never reached GitHub.
+rem Commits on either side that the other does not have.
 set "AHEAD=0"
+set "BEHIND=0"
 git rev-parse --abbrev-ref --symbolic-full-name @{u} >nul 2>nul
 if errorlevel 1 goto :counted
 for /f "delims=" %%a in ('git rev-list --count @{u}..HEAD') do set "AHEAD=%%a"
+for /f "delims=" %%a in ('git rev-list --count HEAD..@{u}') do set "BEHIND=%%a"
 
 :counted
 if defined HAS_CHANGES goto :message
 if not "%AHEAD%"=="0" goto :push_only
+if not "%BEHIND%"=="0" goto :pull_only
 echo  Nothing to upload - GitHub already matches this folder.
 goto :done
 
 :push_only
 echo  No new file changes, but %AHEAD% earlier commit/commits still need pushing.
 goto :push
+
+rem Nothing of ours to send, but the website has newer commits. Bring them down
+rem so this folder stops silently drifting behind the repository.
+:pull_only
+echo  Nothing to upload, but GitHub has %BEHIND% newer commit/commits.
+echo  Downloading them into this folder...
+echo.
+git pull --rebase
+if errorlevel 1 goto :conflict
+echo.
+echo  This folder is up to date with GitHub.
+goto :done
 
 rem ------------------------------------------------------ commit message ---
 :message
