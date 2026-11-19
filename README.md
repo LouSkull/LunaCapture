@@ -1,264 +1,227 @@
-<div align="center">
-
 # Luna Capture
 
-**Screen capture that stays out of your way.**
+**Luna Capture** — нативное приложение для Windows 10/11, которое делает только скриншоты. Оно создано для быстрого захвата экрана, регионов и окон без видеозаписи, буфера повторов и фоновой нагрузки.
 
-A lightweight **native Windows** screenshot, screen-recording, and instant-replay utility written in C++20.
-No Electron, no Node.js, no browser runtime — just DirectX, WASAPI and Media Foundation talking straight to the OS.
+> Статус: `1.0.0.2` · C++20 / Win32 / DXGI / WIC
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0a7bbb)](https://github.com/LouSkull/LunaCapture)
-[![Language](https://img.shields.io/badge/C%2B%2B-20-00599C)](https://github.com/LouSkull/LunaCapture)
-[![Build](https://img.shields.io/badge/build-CMake%20%2B%20MSVC-064F8C)](https://github.com/LouSkull/LunaCapture)
-[![License](https://img.shields.io/badge/license-Source--Available-f4b64c)](license.txt)
+## Что это приложение делает
 
-[**Download**](https://github.com/LouSkull/LunaCapture/releases) · [SDK Docs](website/sdk.html) · [License](license.txt)
+- Снимает один кадр по запросу и освобождает DXGI-ресурсы в состоянии простоя.
+- Сохраняет скриншоты в PNG или JPEG.
+- Работает с несколькими мониторами, виртуальным рабочим столом и разными DPI.
+- Показывает компактные уведомления после сохранения/копирования или при ошибке; начало захвата проходит без уведомления.
+- Даёт полнофункциональный редактор региона в стиле Lightshot: выбор области, перемещение и изменение размера, стрелки, прямоугольники, перо, маркер, стирание, отмена/повтор, цвета, копирование и сохранение.
+- Не записывает видео и звук, не держит replay buffer, не запускает веб-движок и не содержит систему плагинов.
 
-</div>
+## Быстрый запуск
 
----
-
-## Why
-
-Most capture tools ship a browser engine to draw a few buttons. Luna Capture is a single self-contained
-`LunaCapture.exe`: the entire interface is anti-aliased GDI+, capture runs on DXGI Desktop Duplication,
-and encoding goes through hardware Media Foundation encoders when your GPU has them.
-
-No installer service. No background updater daemon. No telemetry. It idles in the tray and gets out of the way.
-
-## Highlights
-
-- **Screenshots** — active display, all displays stitched into one image, a precise region, or a picked window.
-- **Region editor** — freezes the whole desktop for pixel-accurate selection, a move/resize tool for
-  reframing what you drew, then annotate with arrow, rectangle, pen, highlighter and eraser before
-  copying or saving.
-- **Screen recording** — twelve codecs across MP4, fragmented MP4, WMV, AVI and 3GP (H.264, HEVC, AV1,
-  VP9, MPEG-4, VC-1, MJPEG and more), FPS presets from 24 to 240, automatic foreground-game monitor
-  selection, and recovery that survives fullscreen transitions and GPU resets without dropping the session.
-- **Instant replay** — a rolling *encoded* buffer (not raw frames in RAM) on up to 3 monitors simultaneously.
-  One hotkey writes the last moments to disk and the buffer restarts at 0:00 without interrupting capture.
-- **Audio mixer** — system loopback, per-application audio, and up to 4 microphones mixed live to
-  48 kHz stereo AAC, each with independent 0–200 % gain and a soft limiter.
-- **LunaScript plugins** — a sandboxed, permission-checked extension language. No DLLs, no native code
-  execution, no network or filesystem access. Includes a full Theme Studio.
-- **One settings file** — every setting saves itself to a single portable `settings.ini`; copy it to
-  another machine and the whole setup comes with it.
-
-> **Looking for screenshots?** The project site under [`website/`](website/) renders a full visual tour —
-> open [`website/index.html`](website/index.html) in a browser. It is completely offline and makes no network calls.
-
-## Getting started
-
-Two ways to get it, both from the [releases page](https://github.com/LouSkull/LunaCapture/releases):
-
-- **`LunaSetup.exe`** — the installer. It checks the machine, downloads the release, and wires up
-  shortcuts, autostart and the `.luna` file association for you.
-- **`LunaCapture.exe`** — the portable build. Nothing to install; just run it.
-
-To build either yourself, see [Building from source](#building-from-source).
-
-### The installer
-
-`LunaSetup.exe` is a single self-contained executable — no bundled payload, no dependencies of its own.
-
-- **System check** — verifies Windows 10 1903+, a working Direct3D 11 device, and Media Foundation.
-  That last one is genuinely absent on Windows **N/KN** editions until the Media Feature Pack is
-  installed, and the installer says so instead of letting recording fail later.
-- **What it downloads** — `LunaCapture-portable.zip` from the chosen release, expanded into the
-  install folder (app, offline SDK docs, license). `build_release.bat` produces exactly that archive
-  in `dist\`; attach it to the GitHub release next to `LunaSetup.exe`.
-- **Pinned version** — [`installer/installer.ini`](installer/installer.ini) decides which release to
-  fetch (`TargetVersion=1.0.0.1`, or `latest`). If a newer release exists than the pinned one, the
-  first page shows it and offers a one-click switch — it never upgrades behind your back.
-- **Upgrading in place** — if Luna Capture is running, the installer asks it to close before
-  replacing files, so an upgrade never fails on a locked executable.
-- **Options** — install folder, desktop and Start-menu shortcuts, start with Windows, always run as
-  administrator, and the `.luna` file association. Autostart and run-as-admin are mutually exclusive,
-  because a RUNASADMIN shim silently blocks Explorer's sign-in launch.
-- **`.luna` association** — double-clicking a plugin hands it to Luna Capture, which copies it into
-  the plugin folder, reloads, and opens the Plugins page so you can review its permissions. If the app
-  is already running, the file is forwarded to that instance instead of starting a second copy.
-- **Uninstall** — registered in *Apps & features*, or run `LunaSetup.exe --uninstall`. It removes the
-  program, shortcuts, autostart entry, the file association and the compatibility shim, and asks
-  whether to keep your settings, plugins and captures.
-
-Everything installs **per-user** under `%LOCALAPPDATA%`, so no elevation prompt is needed.
-
-## Default shortcuts
-
-Every binding is rebindable in **Settings**. Hotkeys are routed through three deduplicated input paths
-(Raw Input, a low-level keyboard hook, and `RegisterHotKey`) so they keep firing inside fullscreen games.
-
-| Shortcut | Action |
-| --- | --- |
-| <kbd>Print Screen</kbd> | Capture the display containing the foreground window |
-| <kbd>Ctrl</kbd> + <kbd>Print Screen</kbd> | Capture every display, stitched into one image |
-| <kbd>Shift</kbd> + <kbd>Print Screen</kbd> | Open the full-desktop region editor |
-| <kbd>Alt</kbd> + <kbd>Print Screen</kbd> | Pick a single window to capture |
-| <kbd>F9</kbd> | Start / stop screen recording |
-| <kbd>F10</kbd> | Save the current instant replay |
-| <kbd>Alt</kbd> + <kbd>X</kbd> | Toggle the Quick Panel over fullscreen games |
-
-## Plugins — LunaScript
-
-A plugin is a single UTF-8 `.luna` file interpreted by the host. It is **data, not code**: it cannot call
-Win32, inspect frames, open arbitrary paths, reach the network, or allocate native memory. Every declared
-permission is validated before load, and each execution chain runs on a bounded instruction budget.
-
-```
-luna 1;
-
-plugin "studio.acme.quick-capture" {
-    name        "Quick Capture";
-    version     "1.0.0";
-    author      "Acme Studio";
-    description "Captures the active display from Quick Panel.";
-    requires host_api 5;
-
-    permission capture;
-    permission notifications;
-
-    command "capture-now" {
-        title "Capture now";
-        description "Capture the display containing the foreground window.";
-        icon "monitor";
-        surface quick_panel;
-        order 20;
-        run {
-            capture active;
-            notify "Capture queued" "Luna will report when the image is saved.";
-        }
-    }
-}
-```
-
-Drop the file into `%LOCALAPPDATA%\Luna Capture\Plugins\` and hit **Reload** on the Plugins page.
-The complete language reference, Host API, and Theme Studio documentation live in
-[`website/sdk.html`](website/sdk.html) — the same document ships offline with the app and opens from the
-**SDK** button inside the Plugins page.
-
-### Ready-made plugins
-
-[`plugins/`](plugins/) holds five working starting points, each parsed by the test suite so they stay valid:
-
-| Plugin | What it gives you |
-| --- | --- |
-| [`translation-base.luna`](plugins/translation-base.luna) | **Every user-facing string in the app** (724 entries) as a fill-in-the-blank locale — the base for translating Luna into any language |
-| [`quick-panel-essentials.luna`](plugins/quick-panel-essentials.luna) | Region capture, replay save, recording toggle and folder shortcuts on the Quick Panel and tray |
-| [`session-watchdog.luna`](plugins/session-watchdog.luna) | Turns quiet recording/Replay recovery and failure events into overlay toasts |
-| [`capture-presets.luna`](plugins/capture-presets.luna) | One-press setting bundles for sharing, archiving, and fast screenshots |
-| [`theme-starter.luna`](plugins/theme-starter.luna) | The full semantic colour set, filled in and ready to recolour |
-
-**Want Luna in your language?** Start from `translation-base.luna` — see
-[`plugins/README.md`](plugins/README.md) for the walkthrough.
-
-## Building from source
-
-**Requirements**
-
-- Windows 10 or 11 (x64)
-- CMake 3.24 or newer
-- MSVC x64 toolchain — *Desktop development with C++* plus a Windows 10/11 SDK
-
-**One-shot build and launch**
+Для обычного запуска из исходников используй:
 
 ```bat
 install_and_run.bat
 ```
 
-This verifies the toolchain, configures CMake, builds a static-runtime Release executable, runs the
-test suite, and starts `dist\LunaCapture.exe`.
+Скрипт:
 
-**Manual build**
+1. Закрывает запущенную Luna Capture, чтобы exe не был заблокирован.
+2. Проверяет, не изменились ли исходники или версия.
+3. При необходимости создаёт свежий релиз в `dist`.
+4. Запускает `dist\LunaCapture.exe`.
+
+После первого релизного запуска можно использовать `run.bat`: он просто открывает уже собранный `dist\LunaCapture.exe`.
+
+## Захват экрана
+
+| Действие | Стандартный бинд | Результат |
+| --- | --- | --- |
+| Активный дисплей | `Print Screen` | Скриншот монитора, на котором находится целевое окно. |
+| Все дисплеи | `Ctrl + Print Screen` | Один кадр всего виртуального рабочего стола. |
+| Регион | `Shift + Print Screen` | Выбор области и редактор скриншота. |
+| Активное окно | `Alt + Print Screen` | Выбор целевого окна и сохранение/копирование результата. |
+
+Все четыре действия доступны и большими кнопками на странице **Capture**, и из меню в трее.
+
+## Region Select и редактор
+
+Режим региона сначала получает один замороженный кадр рабочего стола, затем открывает редактор. Поэтому интерфейс редактора не попадает в итоговый скриншот и не создаёт дублирование выбора области.
+
+В редакторе доступны:
+
+- выбор новой области на любом мониторе;
+- перенос области и захват за границы/углы для изменения размера;
+- стрелка, прямоугольник, перо и полупрозрачный маркер;
+- перемещение отдельных объектов, стирание, undo/redo;
+- палитра цветов;
+- копирование, сохранение или сохранение с копированием;
+- горячие клавиши `Esc` для отмены, `Ctrl+A` для полного экрана, `S` для сохранения, `C` для копирования и `B` для сохранения с копированием.
+
+В **Settings** есть переключатель **Region helper**:
+
+- **On** — до первого выбора отображаются иконка и короткая подсказка.
+- **Hidden** — чистый экран без текста и иконки.
+
+## Бинды
+
+Нажми сочетание и отпусти основную клавишу: оно появится в предпросмотре и сохранится. На компактной клавиатуре можно использовать Fn-комбинацию, которая выдаёт Print Screen; Fn отдельно не сохраняется, поскольку обычно обрабатывается прошивкой. Поддерживается Print Screen, выдающий только событие отпускания. Повторы и раннее отпускание модификатора не меняют записанное сочетание. Esc, щелчок вне панели или уход из окна отменяют запись. Конфликтующие бинды не заменяют предыдущую настройку.
+
+## Демонстрация экрана
+
+В **Settings → Hidden capture** можно включить скрытый режим (по умолчанию выключен):
+
+- В обычном режиме редактор области и уведомления доступны программе записи.
+- В скрытом режиме окна Luna Capture исключаются из поддерживаемого захвата Windows. Пользователь редактирует неподвижный кадр, а программа демонстрации может продолжать показывать рабочий стол под редактором.
+- Скрытое сохранение сразу использует выбранную папку и формат; диалог сохранения не открывается, звук подтверждения не воспроизводится.
+- Требуется Windows 10 версии 2004 или новее. Результат зависит от API захвата: проверяй режим в предпросмотре используемой программы демонстрации. Захват игры, захват отдельного окна и захват дисплея могут вести себя по-разному. Это не гарантия скрытия при любом способе записи.
+
+Главное окно можно перетаскивать за свободные участки интерфейса. Само окно двигается даже при выключенном параметре Windows «Отображать содержимое окна при перетаскивании»; Esc возвращает его на исходное место. Системные настройки не меняются.
+
+Кнопка **Settings → Test notification** показывает тестовое уведомление независимо от переключателя обычных уведомлений. В скрытом режиме предпросмотр также исключается из захвата. Уведомления и меню трея используют в этом режиме совместимую непрозрачную отрисовку; ошибки применения скрытия больше не игнорируются. Успешная проверка Windows подтверждает установленный режим окон, но не проверяет выбранный способ демонстрации в Discord/OBS.
+
+При запуске захвата Luna ждёт первый настоящий кадр рабочего стола: событие DXGI только о курсоре больше не считается готовым изображением. Это предотвращает чёрный начальный снимок на неподвижном экране. Ожидание ограничено и работает только во время запроса скриншота.
+
+Дополнительная проверка `build\LunaCapturePrivacyTests.exe --live-desktop` на несколько секунд показывает собственный цветной фон. Она проверяет три снимка без движения, видимость изменений под скрытым редактором и неизменность локального снимка. Содержимое экрана в файлы не записывается. Проверка требует интерактивного рабочего стола и запускается отдельно от обычного CTest.
+
+### Проверка на реальном устройстве
+
+1. Назначить Shift + Fn + Print Screen, отпустить Shift раньше Print Screen и проверить итоговый бинд после перезапуска.
+2. Проверить отмену через Esc и уход в другое окно, затем работу прежнего бинда.
+3. В обычном режиме записать выделение области: редактор должен быть виден без чёрного прямоугольника; до сохранения уведомлений нет.
+4. В скрытом режиме открыть Luna поверх движущегося видео и начать выделение. В предпросмотре демонстрации проверить отсутствие Luna и продолжающееся движение видео, а локально — неподвижный кадр редактора.
+5. Выключить скрытый режим и повторить запись; проверить перетаскивание и уведомления при отключённых анимациях Windows.
+
+## Настройка биндов
+
+Страница **Binds** управляет всеми четырьмя глобальными горячими клавишами.
+
+1. Нажми строку нужного действия.
+2. Откроется компактный плавающий тулбар в визуальном стиле панели Region Select.
+3. Выбери `Ctrl`, `Alt`, `Shift` и/или `Win`, затем нужную клавишу.
+
+В тулбаре есть `Print Screen`, пробел, Enter, Tab, Escape, F1–F12, стрелки и дополнительные кнопки мыши `X1`/`X2`. Также можно просто нажать физическую клавишу: поддерживаются обычные, `Alt`-сочетания, мультимедийные и браузерные клавиши.
+
+Длинные комбинации отображаются компактно в карточке, но полное имя бинда сохраняется и видно в интерфейсе. Если комбинация уже занята Windows или другой программой, Luna Capture не заменит рабочий бинд: старое значение останется активным, а приложение сообщит о конфликте. Кнопка **Reset defaults** возвращает четыре стандартных сочетания.
+
+## Интерфейс
+
+Главное окно — нативная borderless-оболочка размером 940×640. Его можно перетаскивать за верхнюю панель; системные анимации Windows не являются обязательными для работы приложения.
+
+Разделы слева:
+
+- **Home** — только краткая информация о приложении и принципе screenshot-only.
+- **Capture** — четыре режима захвата и статус последнего запроса.
+- **Binds** — выбор и проверка глобальных горячих клавиш.
+- **Photos** — переход к папке скриншотов и информация о последнем файле.
+- **Settings** — все рабочие настройки и версия приложения.
+
+В трее используется иконка Luna. Правый клик открывает нативное тёмное меню с быстрым захватом, переходом к папке, переключателями звука/уведомлений и выходом.
+
+## Настройки
+
+В **Settings** доступны:
+
+- папка сохранения;
+- переключение PNG/JPEG;
+- уведомления;
+- звук после успешного сохранения;
+- тестовое уведомление;
+- автозапуск вместе с Windows;
+- отдельный выбор: открыть окно или тихо стартовать в трей после входа в Windows;
+- текстовая подсказка или чистый экран для Region Select;
+- проверка обновлений;
+- номер версии — он находится только в Settings.
+
+Автозапуск реализован обычным ярлыком в папке Windows Startup, а не скрытой записью в `Run`. При отключении опции ярлык удаляется.
+
+## Файлы скриншотов
+
+Папка по умолчанию:
+
+```text
+%USERPROFILE%\Pictures\Luna Capture
+```
+
+Имена начинаются с даты, времени и миллисекунд. Поэтому быстрые скриншоты сортируются в Explorer в правильном хронологическом порядке:
+
+```text
+2026-09-05_14-03-21_047_Screenshot.png
+2026-09-05_14-03-21_047_001_Screenshot.png
+```
+
+Если текущий кадр нельзя получить, приложение показывает понятное сообщение вместо остановки интерфейса. Следующий запрос захвата можно делать сразу.
+
+## Чего здесь намеренно нет
+
+Luna Capture — не рекордер. Из проекта удалены:
+
+- запись экрана и аудио;
+- replay/rollback буферы;
+- просмотрщик медиа и кэш миниатюр;
+- Quick Panel;
+- SDK, примеры и хост плагинов;
+- фоновый видеозахват.
+
+Это уменьшает постоянную нагрузку на компьютер и оставляет приложению одну понятную задачу: качественные скриншоты по требованию.
+
+## Сборка релиза
+
+Требования:
+
+- Windows 10 или Windows 11;
+- CMake 3.24+;
+- MSVC x64 с workload **Desktop development with C++**;
+- Windows SDK.
+
+Полная релизная сборка:
 
 ```bat
-cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure
+build_release.bat
 ```
 
-The executables land in `build\bin\` — `LunaCapture.exe` and `LunaSetup.exe`.
+Скрипт конфигурирует CMake, собирает приложение и установщик, запускает тесты, копирует итоговые файлы в `dist` и создаёт portable-архив.
 
-If something goes wrong, `diagnose.bat` prints the detected toolchain, CMake version, and build state.
+После успешной сборки:
 
-### Tests
+```text
+dist\LunaCapture.exe
+dist\LunaSetup.exe
+dist\LunaCapture-portable.zip
+dist\docs\
+dist\version.txt
+```
 
-`ctest` runs three suites by default:
-
-| Suite | Covers |
-| --- | --- |
-| `LunaShotCoreTests` | Core utilities, image scaling, LunaScript parsing, localization |
-| `LunaShotPluginDispatchTests` | Plugin event dispatch fairness and instruction budgets |
-| `LunaShotPluginExampleTests` | Every bundled plugin in `plugins/` still parses |
-| `LunaShotThemeTests` | Theme renderer and backdrop patterns |
-
-Two hardware-dependent smoke tests are excluded from the default build because they capture and encode
-real frames. Build them explicitly when you touch the recording pipeline:
+Для быстрой локальной разработки можно собрать существующую минимальную конфигурацию:
 
 ```bat
-cmake --build build --target LunaShotRecordingSmoke
-cmake --build build --target LunaShotMediaPlayerSmoke
+cmake --build build-minimal --parallel
+ctest --test-dir build-minimal --output-on-failure
 ```
 
-### Publishing the sources by hand
+Перед тестированием новой сборки закрой Luna Capture: Windows не позволяет линкеру заменить запущенный `LunaCapture.exe`.
 
-`git push` is the normal way to update the repository. If you upload through the GitHub website
-instead, its uploader takes at most 100 files per drag — so run:
+## Технологии
 
-```bat
-prepare_github_upload.bat
+- **C++20** — основная логика.
+- **Win32** — окна, глобальные бинды, трей, Startup shortcut и системная интеграция.
+- **Direct3D 11 / DXGI** — захват кадров по запросу.
+- **WIC** — PNG и JPEG.
+- **GDI+** — сглаженный интерфейс, иконки и редактор.
+- **Windows Shell / COM** — папки, ярлыки автозапуска и системные диалоги.
+
+Иконка приложения берётся из `assets/lunashot.png`; сгенерированный `assets/lunashot.ico` встроен в exe через `resources.rc`.
+
+## Структура проекта
+
+```text
+src/        Код приложения и нативного интерфейса
+include/    Заголовки и общие типы
+assets/     Иконка, манифест и ресурсы
+docs/       Оффлайн-документация, поставляемая вместе с приложением
+installer/  Нативный установщик/деинсталлятор
+tests/      Core и theme тесты
+scripts/    Проверка пересборки и безопасное закрытие старой копии
+dist/       Готовый portable-релиз
 ```
 
-It stages a clean `github-source\` folder containing only what belongs in the repository (no build
-output, no `dist`, no captures), prints the file count per folder, and tells you whether it fits in
-one upload or needs splitting.
+## Лицензия
 
-### Versioning
-
-The version lives in exactly one place: the [`VERSION`](VERSION) file at the repository root. CMake reads it
-into `project(VERSION)` and propagates it to the C++ `kAppVersion`, the executable's version resource, the
-build scripts, and the website badges. **Bump that one file for a release** — nothing else needs editing.
-
-## Repository layout
-
-```
-src/           Implementation (capture, recording, audio, UI, plugins)
-include/       Public headers for the above
-installer/     Standalone installer / uninstaller (LunaSetup.exe)
-tests/         ctest suites and hardware smoke tests
-plugins/       Ready-made LunaScript plugins, incl. the full translation base
-assets/        Icon, capture sound, application manifest
-website/       Project site — overview, SDK docs, license
-docs/          Offline SDK copy shipped next to the executable
-cmake/         Generated-header templates
-VERSION        Single source of truth for the app version
-```
-
-## Where Luna Capture keeps things
-
-| Path | Contents |
-| --- | --- |
-| `%USERPROFILE%\Pictures\Luna Capture` | Screenshots (default, configurable) |
-| `%USERPROFILE%\Videos\Luna Capture` | Recordings and saved replays (default, configurable) |
-| `%LOCALAPPDATA%\Luna Capture\settings.ini` | All settings and hotkey bindings |
-| `%LOCALAPPDATA%\Luna Capture\Plugins\` | Installed `.luna` plugins |
-| `%LOCALAPPDATA%\Luna Capture\capture.log` | Diagnostic log |
-
-Uninstalling is deleting the executable; removing the `%LOCALAPPDATA%\Luna Capture` folder clears
-everything else.
-
-## Privacy
-
-Luna Capture has no telemetry, no analytics, and no accounts. The only network request it ever makes is an
-update check against the GitHub releases API, which you can trigger or ignore from **Settings → Updates**.
-Plugins cannot make network requests at all.
-
-## License
-
-Luna Capture is **source-available, not open source**. You may read, compile, and privately modify it, and
-use it commercially — but selling it, or distributing modified builds or modified source, is not permitted.
-
-See [`license.txt`](license.txt) for the authoritative terms, or the
-[rendered version](website/license.html) for a plain-language summary alongside the full text.
-
-Copyright © 2026 ggrolton123. All rights reserved.
+Смотри [license.txt](license.txt).

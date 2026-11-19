@@ -228,50 +228,10 @@ void DrawUiIcon(HDC dc, UiIcon icon, const RECT& bounds, COLORREF color, int str
             Line(c, 12, 9.4f, 12, 13.8f);
             Dot(c, 12, 16.6f, 1.05f);
             break;
-        case UiIcon::Record:
-            RoundRect(c, 3, 4.5f, 18, 15, 2.4f);
-            Dot(c, 12, 12, 4.1f);
-            break;
-        case UiIcon::Replay: {
-            GraphicsPath path;
-            path.AddArc(c.P(4.2f, 4.2f).X, c.P(4.2f, 4.2f).Y, c.S(15.6f), c.S(15.6f), -42, 292);
-            Stroke(c, path);
-            Polyline(c, Grid(c, {4.2f, 5, 4.2f, 11, 10.2f, 11}), false);
-            Line(c, 12, 7.5f, 12, 12);
-            Line(c, 12, 12, 15.2f, 14);
-            break;
-        }
-        case UiIcon::Plugin:
-            // Puzzle-piece placeholder for the future extension system.
-            Polyline(c, Grid(c, {4, 8, 9, 8, 9, 5.8f, 10.4f, 4.2f, 12.2f, 4.2f,
-                                 14, 4.2f, 15, 5.8f, 15, 8, 20, 8, 20, 13,
-                                 17.8f, 13, 16.2f, 14.2f, 16.2f, 16, 16.2f, 17.8f,
-                                 17.8f, 19, 20, 19, 20, 21, 19, 21, 4, 21, 4, 8}), false);
-            break;
-        case UiIcon::Microphone:
-            RoundRect(c, 8.5f, 3, 7, 12, 3.5f);
-            Arc(c, 5.5f, 8, 13, 11, 0, 180);
-            Line(c, 12, 19, 12, 22);
-            Line(c, 8.5f, 22, 15.5f, 22);
-            break;
-        case UiIcon::Cursor:
-            Polyline(c, Grid(c, {5, 3.5f, 5, 19, 9.2f, 14.8f, 12, 21, 15, 19.6f, 12.1f, 13.8f, 18, 13.8f, 5, 3.5f}), true);
-            break;
         case UiIcon::Photo:
             RoundRect(c, 3, 4, 18, 16, 2.4f);
             Dot(c, 8, 9, 1.6f);
             Polyline(c, Grid(c, {4.5f, 17.5f, 9.5f, 12.5f, 13, 16, 15.5f, 13.5f, 20, 18}), false);
-            break;
-        case UiIcon::Video:
-            RoundRect(c, 3, 5, 18, 14, 2.4f);
-            FilledTriangle(c, c.P(10, 9), c.P(10, 15), c.P(16, 12));
-            break;
-        case UiIcon::Play:
-            FilledTriangle(c, c.P(7.5f, 5), c.P(7.5f, 19), c.P(19, 12));
-            break;
-        case UiIcon::Pause:
-            Line(c, 8.5f, 5, 8.5f, 19);
-            Line(c, 15.5f, 5, 15.5f, 19);
             break;
         case UiIcon::Move:
             // Four-way move cross.
@@ -281,32 +241,6 @@ void DrawUiIcon(HDC dc, UiIcon icon, const RECT& bounds, COLORREF color, int str
             Polyline(c, Grid(c, {9, 18, 12, 21, 15, 18}), false);
             Polyline(c, Grid(c, {6, 9, 3, 12, 6, 15}), false);
             Polyline(c, Grid(c, {18, 9, 21, 12, 18, 15}), false);
-            break;
-        case UiIcon::SkipBack:
-            FilledTriangle(c, c.P(19, 5.5f), c.P(19, 18.5f), c.P(10, 12));
-            Line(c, 6.5f, 5.5f, 6.5f, 18.5f);
-            break;
-        case UiIcon::SkipForward:
-            FilledTriangle(c, c.P(5, 5.5f), c.P(5, 18.5f), c.P(14, 12));
-            Line(c, 17.5f, 5.5f, 17.5f, 18.5f);
-            break;
-        case UiIcon::Expand:
-            // Arrows pushing out to opposite corners.
-            Polyline(c, Grid(c, {4, 9.5f, 4, 4, 9.5f, 4}), false);
-            Polyline(c, Grid(c, {14.5f, 20, 20, 20, 20, 14.5f}), false);
-            Line(c, 4, 4, 10.5f, 10.5f);
-            Line(c, 20, 20, 13.5f, 13.5f);
-            break;
-        case UiIcon::Collapse:
-            Polyline(c, Grid(c, {10, 4.5f, 10, 10, 4.5f, 10}), false);
-            Polyline(c, Grid(c, {14, 19.5f, 14, 14, 19.5f, 14}), false);
-            Line(c, 10, 10, 3.5f, 3.5f);
-            Line(c, 14, 14, 20.5f, 20.5f);
-            break;
-        case UiIcon::Mute:
-            Polyline(c, Grid(c, {3.5f, 9.5f, 7, 9.5f, 11, 5.5f, 11, 18.5f, 7, 14.5f, 3.5f, 14.5f, 3.5f, 9.5f}), false);
-            Line(c, 14.5f, 9.5f, 20, 15);
-            Line(c, 20, 9.5f, 14.5f, 15);
             break;
     }
 }

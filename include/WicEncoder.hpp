@@ -4,6 +4,5 @@
 
 #include <string>
 
-void PrewarmWic();
-
 bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error);
+ClipboardMemory EncodeClipboardPng(const SaveJob& job);

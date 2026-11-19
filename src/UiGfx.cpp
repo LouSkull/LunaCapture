@@ -234,7 +234,7 @@ COLORREF ThemeColor(ThemeRole role) {
 
 COLORREF ResolveThemeColor(COLORREF color) {
     if (g_themeBypassDepth > 0) return color;
-    const ThemePalette palette = g_theme;
+    const ThemePalette& palette = g_theme;
     if (!palette.active || color == RGB(0, 0, 0)) return color;
 
     // Preserve the meaning of canonical host colors exactly. Less common legacy
@@ -318,6 +318,11 @@ HFONT CreateThemeFont(int pixels, int weight, bool italic) {
 bool IsThemeBackdropAnimated() noexcept {
     return g_theme.active && g_theme.backdropPattern != BackdropPattern::Solid &&
            g_theme.backdropSpeedPercent > 0 && g_theme.motionScalePercent > 0;
+}
+
+bool AreSystemAnimationsEnabled() noexcept {
+    // Luna renders its own animations; do not change or inherit the Windows preference.
+    return true;
 }
 
 void SetTranslations(const std::vector<std::pair<std::wstring, std::wstring>>& translations) {
@@ -969,57 +974,101 @@ HBITMAP CreateLayeredDib(int width, int height, void** pixels) {
 
 void MakeLayeredSurfaceOpaque(void* pixels, int width, int height) {
     if (!pixels || width <= 0 || height <= 0) return;
-    auto* bgra = static_cast<std::uint8_t*>(pixels);
+    auto* bgra = static_cast<std::uint32_t*>(pixels);
     const std::size_t count = static_cast<std::size_t>(width) * height;
-    for (std::size_t i = 0; i < count; ++i) bgra[i * 4 + 3] = 255;
+    // DWORD OR is friendly to the compiler's vectorizer and preserves BGR while
+    // repairing the reserved byte that legacy GDI operations leave undefined.
+    for (std::size_t i = 0; i < count; ++i) bgra[i] |= 0xFF000000u;
 }
 
 namespace {
-BYTE RoundedCoverage(int x, int y, int width, int height, int radius) {
-    radius = (std::max)(0, (std::min)(radius, (std::min)(width, height) / 2));
+int ClampRoundedRadius(int width, int height, int radius) {
+    if (width <= 0 || height <= 0) return 0;
+    return (std::max)(0, (std::min)(radius, (std::min)(width, height) / 2));
+}
+
+const std::vector<BYTE>& RoundedCornerCoverageMask(int radius) {
+    static std::mutex cacheMutex;
+    static std::unordered_map<int, std::vector<BYTE>> cache;
+    const std::scoped_lock lock(cacheMutex);
+    auto [it, inserted] = cache.try_emplace(radius);
+    if (!inserted) return it->second;
+
+    auto& mask = it->second;
+    mask.resize(static_cast<std::size_t>(radius) * radius);
+    constexpr int kSamples = 4;
+    for (int y = 0; y < radius; ++y) {
+        for (int x = 0; x < radius; ++x) {
+            int inside = 0;
+            for (int sy = 0; sy < kSamples; ++sy) {
+                for (int sx = 0; sx < kSamples; ++sx) {
+                    const float px = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / kSamples;
+                    const float py = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / kSamples;
+                    const float dx = px - static_cast<float>(radius);
+                    const float dy = py - static_cast<float>(radius);
+                    if (dx * dx + dy * dy <= static_cast<float>(radius * radius)) ++inside;
+                }
+            }
+            mask[static_cast<std::size_t>(y) * radius + x] =
+                static_cast<BYTE>((inside * 255 + (kSamples * kSamples) / 2) / (kSamples * kSamples));
+        }
+    }
+    return mask;
+}
+
+void ApplyRoundedCoverage(std::uint8_t* pixel, BYTE alpha) {
+    // UpdateLayeredWindow expects premultiplied BGRA. The back buffer is opaque,
+    // so only corner coverage needs to be folded into the color channels.
+    if (alpha == 0) {
+        pixel[0] = pixel[1] = pixel[2] = 0;
+    } else if (alpha != 255) {
+        pixel[0] = static_cast<BYTE>((static_cast<unsigned>(pixel[0]) * alpha + 127) / 255);
+        pixel[1] = static_cast<BYTE>((static_cast<unsigned>(pixel[1]) * alpha + 127) / 255);
+        pixel[2] = static_cast<BYTE>((static_cast<unsigned>(pixel[2]) * alpha + 127) / 255);
+    }
+    pixel[3] = alpha;
+}
+}  // namespace
+
+BYTE RoundedRectPixelCoverage(int x, int y, int width, int height, int radius) {
+    if (x < 0 || y < 0 || x >= width || y >= height) return 0;
+    radius = ClampRoundedRadius(width, height, radius);
     if (radius == 0 || (x >= radius && x < width - radius) ||
         (y >= radius && y < height - radius)) {
         return 255;
     }
 
-    const float centerX = x < radius ? static_cast<float>(radius) : static_cast<float>(width - radius);
-    const float centerY = y < radius ? static_cast<float>(radius) : static_cast<float>(height - radius);
-    constexpr int kSamples = 4;
-    int inside = 0;
-    for (int sy = 0; sy < kSamples; ++sy) {
-        for (int sx = 0; sx < kSamples; ++sx) {
-            const float px = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / kSamples;
-            const float py = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / kSamples;
-            const float dx = px - centerX;
-            const float dy = py - centerY;
-            if (dx * dx + dy * dy <= static_cast<float>(radius * radius)) ++inside;
-        }
-    }
-    return static_cast<BYTE>((inside * 255 + (kSamples * kSamples) / 2) / (kSamples * kSamples));
+    const int cornerX = x < radius ? x : width - 1 - x;
+    const int cornerY = y < radius ? y : height - 1 - y;
+    const auto& mask = RoundedCornerCoverageMask(radius);
+    return mask[static_cast<std::size_t>(cornerY) * radius + cornerX];
 }
-}  // namespace
 
 bool PresentRoundedLayeredWindow(HWND window, HDC source, void* pixels,
                                  int width, int height, int radius, BYTE opacity) {
     if (!window || !source || !pixels || width <= 0 || height <= 0) return false;
 
-    radius = ResolveThemeRadius(radius);
+    // DrawText/FillRect can clear the reserved alpha byte even when the surface
+    // was made opaque before GDI+ composition. Repair that byte with one tight,
+    // vectorizable pass; all expensive coverage/premultiplication below remains
+    // restricted to the cached corner squares.
+    MakeLayeredSurfaceOpaque(pixels, width, height);
+    radius = ClampRoundedRadius(width, height, ResolveThemeRadius(radius));
     auto* bgra = static_cast<std::uint8_t*>(pixels);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
+    if (radius > 0) {
+        const auto& mask = RoundedCornerCoverageMask(radius);
+        const auto apply = [&](int x, int y, BYTE alpha) {
             std::uint8_t* pixel = bgra + (static_cast<std::size_t>(y) * width + x) * 4;
-            const BYTE alpha = RoundedCoverage(x, y, width, height, radius);
-            // UpdateLayeredWindow expects premultiplied BGRA. All UI is first
-            // rendered against an opaque surface, so only edge coverage needs
-            // to be folded into the color channels here.
-            if (alpha == 0) {
-                pixel[0] = pixel[1] = pixel[2] = 0;
-            } else if (alpha != 255) {
-                pixel[0] = static_cast<BYTE>((static_cast<unsigned>(pixel[0]) * alpha + 127) / 255);
-                pixel[1] = static_cast<BYTE>((static_cast<unsigned>(pixel[1]) * alpha + 127) / 255);
-                pixel[2] = static_cast<BYTE>((static_cast<unsigned>(pixel[2]) * alpha + 127) / 255);
+            ApplyRoundedCoverage(pixel, alpha);
+        };
+        for (int y = 0; y < radius; ++y) {
+            for (int x = 0; x < radius; ++x) {
+                const BYTE alpha = mask[static_cast<std::size_t>(y) * radius + x];
+                apply(x, y, alpha);
+                apply(width - 1 - x, y, alpha);
+                apply(x, height - 1 - y, alpha);
+                apply(width - 1 - x, height - 1 - y, alpha);
             }
-            pixel[3] = alpha;
         }
     }
 
@@ -1038,7 +1087,7 @@ bool PresentRoundedLayeredWindow(HWND window, HDC source, void* pixels,
 
 bool PointInRoundedRect(POINT point, int width, int height, int radius) {
     if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return false;
-    return RoundedCoverage(point.x, point.y, width, height, ResolveThemeRadius(radius)) >= 128;
+    return RoundedRectPixelCoverage(point.x, point.y, width, height, ResolveThemeRadius(radius)) >= 128;
 }
 
 }  // namespace ui

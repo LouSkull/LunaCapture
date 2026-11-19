@@ -1,0 +1,2357 @@
+Ты работаешь на моём основном Windows development PC.
+
+Твоя задача — ОДИН РАЗ грамотно подготовить мощную универсальную development workstation, которой я смогу пользоваться во всех будущих проектах.
+
+Это НЕ Roblox-specific setup.
+
+Roblox — лишь один небольшой тип проектов среди многих.
+
+ОСНОВНЫЕ ПРИОРИТЕТЫ:
+
+1. Web development
+2. красивые современные сайты и web UI
+3. full-stack applications
+4. dashboards / admin panels / control panels
+5. APIs / backend
+6. Python
+7. C / C++
+8. desktop applications
+9. game development
+10. Roblox/Luau как дополнительный профиль
+11. testing
+12. debugging
+13. performance
+14. security auditing
+15. Git/GitHub
+16. databases
+17. automation
+18. build systems
+19. deployment tooling
+20. repo/code analysis
+
+Мне нужна не коллекция из 500 случайных программ.
+
+Мне нужна:
+
+FAST
+CLEAN
+MODERN
+PROFESSIONAL
+REUSABLE
+
+development workstation.
+
+========================================
+ГЛАВНЫЙ ПРИНЦИП
+===============
+
+НИКОГДА не путай:
+
+GLOBAL SYSTEM TOOLS
+
+и
+
+PROJECT DEPENDENCIES.
+
+Глобально устанавливаются в основном:
+
+* runtimes
+* compilers
+* SDK
+* package managers
+* CLI
+* debuggers
+* build systems
+* system utilities
+* Git tooling
+* security scanners
+* reusable standalone dev utilities
+
+Локально в конкретном проекте устанавливаются:
+
+* React
+* Next.js
+* Vite
+* Tailwind
+* shadcn/ui dependencies
+* Motion
+* TanStack Query
+* Zustand
+* Zod
+* React Hook Form
+* Prisma
+* Drizzle
+* Fastify
+* Hono
+* Vitest
+* Playwright
+* ESLint
+* Biome
+* framework libraries
+* UI components
+
+НЕ ДЕЛАЙ:
+
+npm install -g половины npm registry.
+
+Если CLI прекрасно вызывается через:
+
+pnpm dlx
+npx
+bunx
+uvx
+
+используй это вместо бессмысленной permanent global installation.
+
+========================================
+NO PLUGIN BLOAT
+===============
+
+ОЧЕНЬ ВАЖНО.
+
+Не засоряй систему:
+
+* сотнями VS Code extensions
+* MCP servers
+* AI skills
+* editor plugins
+* browser extensions
+* shell plugins
+* random shadcn registries
+* community executables
+
+MCP / AI skills / agent plugins:
+
+ПО УМОЛЧАНИЮ НЕ УСТАНАВЛИВАТЬ.
+
+Добавлять только если:
+
+1. есть явная практическая польза;
+2. инструмент активно поддерживается;
+3. он не дублирует уже имеющийся инструмент;
+4. источник официальный;
+5. он нужен во многих проектах.
+
+Не ставь plugin ради plugin.
+
+========================================
+STAGE 1 — INVENTORY
+===================
+
+ПЕРЕД УСТАНОВКОЙ проведи полный inventory системы.
+
+Проверь:
+
+OS
+Windows version
+CPU architecture
+available disk space
+PATH
+PowerShell
+Windows Terminal
+winget
+Git
+GitHub CLI
+Node.js
+npm
+pnpm
+Bun
+Deno
+Python
+uv
+pipx
+Rust
+Cargo
+CMake
+Ninja
+LLVM
+Clang
+clangd
+MSVC
+Visual Studio
+Visual Studio Build Tools
+Windows SDK
+.NET SDK
+Java
+Flutter
+Dart
+Docker
+FFmpeg
+Git LFS
+VS Code
+Roblox tooling
+
+Выдай сначала таблицу:
+
+TOOL
+STATUS
+VERSION
+LOCATION
+PATH STATUS
+ACTION
+
+STATUS:
+
+OK
+OUTDATED
+MISSING
+OPTIONAL
+CONFLICT
+BROKEN
+
+Не переустанавливай то, что уже работает.
+
+========================================
+STAGE 2 — WINDOWS FOUNDATION
+============================
+
+Проверь и при необходимости установи:
+
+* Windows Terminal
+* PowerShell 7
+* winget
+* Git
+* Git LFS
+* GitHub CLI
+* 7-Zip
+* curl
+* jq
+* yq
+* OpenSSL
+
+Полезные CLI:
+
+* ripgrep
+* fd
+* fzf
+* bat
+* eza
+* zoxide
+* delta
+* lazygit
+* just
+* hyperfine
+* watchexec
+* ast-grep
+* universal-ctags
+
+Опционально:
+
+* tokei или scc
+
+Не устанавливай пять инструментов для одной и той же простой задачи.
+
+========================================
+STAGE 3 — JAVASCRIPT / TYPESCRIPT FOUNDATION
+============================================
+
+Подготовить:
+
+* Node.js current LTS
+* npm
+* Corepack если он применим к установленной версии
+* pnpm
+* Bun stable
+
+Deno:
+
+установить только если он лёгкий и не создаёт конфликтов.
+
+Основной package manager для моих новых JS/TS проектов:
+
+pnpm
+
+Но не ломай проекты, которые уже используют:
+
+npm
+yarn
+bun
+
+Всегда уважай существующий lockfile:
+
+package-lock.json → npm
+pnpm-lock.yaml → pnpm
+yarn.lock → yarn
+bun.lock / bun.lockb → bun
+
+========================================
+НЕ СТАВИТЬ ГЛОБАЛЬНО WEB FRAMEWORKS
+===================================
+
+НЕ устанавливай глобально:
+
+React
+Next
+Vite
+Astro
+Tailwind
+Vitest
+Playwright
+Biome
+ESLint
+
+если они нормально устанавливаются project-local или вызываются через dlx.
+
+Версия framework должна принадлежать проекту.
+
+========================================
+WEB DEVELOPMENT — ОСНОВНОЙ ПРИОРИТЕТ
+====================================
+
+Подготовь workstation для нескольких ТИПОВ сайтов.
+
+Не пытайся использовать один framework абсолютно для всего.
+
+Создай концепцию PROJECT PROFILES.
+
+========================================
+WEB PROFILE A — NEXT FULLSTACK
+==============================
+
+Использовать для:
+
+* SaaS
+* web apps
+* dashboards
+* authentication
+* server rendering
+* admin panels
+* account systems
+* larger commercial sites
+* frontend + backend в одном проекте
+
+Стек-кандидат:
+
+Next.js
+React
+TypeScript
+App Router
+Tailwind CSS
+shadcn/ui
+
+Дополнительные зависимости ПО НЕОБХОДИМОСТИ:
+
+Motion
+Lucide
+Zod
+React Hook Form
+TanStack Query
+Zustand
+TanStack Table
+Sonner
+cmdk
+dnd-kit
+date-fns
+
+НЕ ставить их все автоматически.
+
+Определять требования проекта.
+
+========================================
+WEB PROFILE B — VITE REACT
+==========================
+
+Для:
+
+* SPA
+* dashboards
+* internal tools
+* game control panels
+* Discord bot panels
+* launchers frontend
+* local web interfaces
+* frontend к отдельному backend
+
+Стек:
+
+Vite
+React
+TypeScript
+Tailwind
+shadcn/ui
+
+Опционально:
+
+TanStack Router
+TanStack Query
+Zustand
+Motion
+
+========================================
+WEB PROFILE C — ASTRO
+=====================
+
+Для:
+
+* landing pages
+* product websites
+* portfolios
+* blogs
+* documentation
+* marketing
+* content-heavy websites
+* mostly-static sites
+
+Подготовить возможность быстрого:
+
+npm/pnpm create astro
+
+Не устанавливать Astro глобально.
+
+Astro может подключать React только если действительно нужен interactive component.
+
+========================================
+WEB PROFILE D — SIMPLE STATIC
+=============================
+
+Не каждый сайт требует React.
+
+Для простых проектов поддерживать:
+
+HTML
+modern CSS
+JavaScript/TypeScript
+Vite
+
+Не превращать простую страницу в 300 MB node_modules без причины.
+
+========================================
+OPTIONAL WEB FRAMEWORKS
+=======================
+
+Знать и уметь использовать при необходимости:
+
+Svelte / SvelteKit
+Vue / Nuxt
+React Router framework
+TanStack Start
+
+НО НЕ:
+
+* устанавливать их глобально
+* создавать шаблоны для каждого
+* добавлять их в каждый проект
+
+Они доступны КАК ВАРИАНТ.
+
+========================================
+MODERN WEB UI STACK
+===================
+
+Для красивых интерфейсов знать следующие категории.
+
+HEADLESS / COMPONENTS:
+
+* shadcn/ui
+* Radix
+* Base UI
+* React Aria
+* Headless UI
+
+FULL COMPONENT SYSTEMS:
+
+* Mantine
+* MUI
+* Ant Design
+
+Не смешивать три full UI frameworks в одном проекте.
+
+========================================
+UI DEFAULT PREFERENCE
+=====================
+
+Для кастомных коммерческих интерфейсов обычно предпочитать:
+
+Tailwind
++
+shadcn-style components
++
+хороший headless primitive
++
+собственный design system
+
+вместо огромной theme-heavy UI библиотеки.
+
+========================================
+ANIMATION
+=========
+
+Основной вариант:
+
+Motion
+
+Для более сложной timeline / marketing animation:
+
+GSAP
+
+Дополнительно только если требуется:
+
+Rive
+Lottie
+
+НЕ устанавливать несколько animation libraries просто так.
+
+========================================
+ICON SYSTEM
+===========
+
+Основной вариант:
+
+Lucide
+
+Альтернативы:
+
+Phosphor
+Tabler
+Iconify
+
+В одном проекте желательно один основной icon family.
+
+========================================
+PREMIUM UI REQUIREMENTS
+=======================
+
+Когда я прошу красивый UI, стремись к качеству современных:
+
+Linear
+Vercel
+Raycast
+Discord
+GitHub
+Steam
+PlayStation
+Xbox
+professional SaaS dashboards
+
+Но НЕ копируй их буквально.
+
+Мне нравится:
+
+* минимализм
+* clean dark UI
+* compact spacing
+* strong information hierarchy
+* хороший typography
+* subtle borders
+* хороший contrast
+* правильная density
+* smooth hover
+* spring transitions
+* polished dropdowns
+* command palettes
+* context menus
+* tabs
+* combobox
+* tooltips
+* popovers
+* sheets
+* dialogs
+* segmented controls
+* sliders
+* switches
+* skeleton states
+* loading states
+* empty states
+* keyboard navigation
+* responsive layout
+
+НЕ нравится:
+
+* дешёвый neon
+* cyberpunk по умолчанию
+* огромные glowing borders
+* glassmorphism везде
+* gradients на каждом элементе
+* лишние рамки
+* гигантские кнопки
+* mobile-looking desktop UI
+* animation ради animation
+
+========================================
+DESIGN SYSTEM
+=============
+
+Для серьёзных web apps поощрять:
+
+CSS variables
+design tokens
+spacing scale
+radius scale
+typography scale
+semantic colors
+consistent focus states
+consistent disabled states
+dark/light theme architecture
+
+Не hardcode 50 случайных цветов.
+
+========================================
+ACCESSIBILITY
+=============
+
+Подготовить возможность использовать:
+
+axe-core
+Playwright accessibility testing
+semantic HTML
+keyboard navigation
+ARIA только где она реально нужна
+
+Accessibility является частью качества UI.
+
+========================================
+WEB PERFORMANCE
+===============
+
+Подготовить инструменты/подходы:
+
+Lighthouse
+Chrome DevTools
+bundle analysis
+Core Web Vitals
+image optimization
+lazy loading
+code splitting
+font optimization
+tree shaking
+
+Глобально Lighthouse ставить только если это действительно удобно.
+
+Иначе использовать on-demand.
+
+========================================
+WEB SEO TOOLKIT
+===============
+
+Новые public websites должны уметь нормально работать с:
+
+metadata
+canonical URLs
+robots.txt
+sitemap.xml
+OpenGraph
+Twitter/X cards
+structured data / JSON-LD
+favicon/app icons
+semantic headings
+
+Не добавлять SEO infrastructure в private dashboard, где она бессмысленна.
+
+========================================
+RESPONSIVE DESIGN
+=================
+
+При разработке public sites:
+
+mobile
+tablet
+desktop
+large desktop
+
+должны быть нормальными.
+
+Не делать desktop → тупо уменьшить всё до телефона.
+
+========================================
+FORMS
+=====
+
+Рекомендуемый стек для React:
+
+React Hook Form
++
+Zod
+
+Но использовать только если форма достаточно сложная.
+
+Простая форма не обязана иметь library.
+
+========================================
+CLIENT STATE
+============
+
+Обычно:
+
+Zustand
+
+Для небольшого state:
+
+React state/context
+
+Не тащить Redux автоматически.
+
+Redux Toolkit использовать если размер/архитектура проекта это оправдывает.
+
+========================================
+SERVER STATE
+============
+
+TanStack Query использовать для:
+
+API fetching
+caching
+mutations
+server state
+
+Но не устанавливать автоматически в Next app, если framework уже решает конкретный data flow проще.
+
+========================================
+TABLES
+======
+
+Основной headless вариант:
+
+TanStack Table
+
+Большие enterprise grids:
+
+AG Grid
+
+Только если реально нужен advanced grid.
+
+========================================
+CHARTS
+======
+
+Варианты:
+
+Recharts
+Apache ECharts
+Chart.js
+
+Выбирать один под задачу.
+
+Не устанавливать всё сразу.
+
+========================================
+FRONTEND TESTING
+================
+
+Подготовить workflow:
+
+Vitest
+Testing Library
+Playwright
+
+Но:
+
+Vitest должен быть project-local.
+
+Playwright project-local.
+
+Browser binaries устанавливать только по фактической необходимости.
+
+Для обычного проекта Chromium достаточно как первый browser target.
+
+========================================
+BACKEND JAVASCRIPT / TYPESCRIPT
+===============================
+
+Подготовить варианты.
+
+LIGHTWEIGHT API:
+
+Hono
+
+NODE API:
+
+Fastify
+
+LARGE STRUCTURED BACKEND:
+
+NestJS
+
+Next.js может использоваться как backend-for-frontend там, где это разумно.
+
+НЕ создавать отдельный backend server без причины.
+
+========================================
+API DESIGN
+==========
+
+Подготовить:
+
+REST
+WebSocket
+SSE
+gRPC где реально нужен
+OpenAPI
+
+CLI:
+
+curl
+HTTPie
+Bruno
+
+Дополнительно:
+
+grpcurl
+websocat
+
+Postman не обязателен, если Bruno полностью закрывает мои задачи.
+
+========================================
+TYPE SAFE API
+=============
+
+Для TS проектов рассматривать:
+
+OpenAPI generated clients
+Zod schemas
+shared types
+
+Если frontend/backend tightly coupled:
+
+можно рассмотреть tRPC или аналогичную architecture.
+
+Но не навязывать её каждому проекту.
+
+========================================
+AUTHENTICATION
+==============
+
+Для новых TS проектов знать актуальные варианты.
+
+Рассмотреть:
+
+Better Auth
+
+External auth providers:
+
+Clerk
+Auth0
+Supabase Auth
+
+только если проекту это нужно.
+
+НЕ использовать Lucia package как default, если он deprecated.
+
+Всегда:
+
+* secure cookies
+* CSRF awareness
+* session validation
+* password hashing
+* rate limiting
+* email verification при необходимости
+* MFA/passkeys при необходимости
+* server-side authorization
+
+AUTHENTICATION ≠ AUTHORIZATION.
+
+Проверки permissions должны происходить на сервере.
+
+========================================
+DATABASES
+=========
+
+System-level clients:
+
+SQLite
+PostgreSQL client
+Redis CLI
+
+Опционально:
+
+MySQL/MariaDB client
+
+GUI:
+
+выбрать ОДИН основной:
+
+DBeaver Community
+или
+Beekeeper Studio
+
+Не надо ставить 5 database GUI.
+
+========================================
+TYPESCRIPT DATABASE ACCESS
+==========================
+
+Основные варианты:
+
+Drizzle
+Prisma
+
+НЕ устанавливать глобально автоматически.
+
+Выбирать под проект.
+
+Drizzle подходит когда нужен:
+
+lightweight
+SQL-like
+TypeScript-first
+контроль SQL
+
+Prisma использовать когда его workflow лучше подходит конкретному проекту.
+
+Всегда проверять текущий stable release перед созданием нового проекта.
+
+Не использовать RC/beta автоматически.
+
+========================================
+DATA SERVICES
+=============
+
+Знать как варианты, но ничего глобально не ставить:
+
+Supabase
+Neon
+Turso
+Firebase
+
+Использовать только если проекту это подходит.
+
+========================================
+OBJECT STORAGE / FILES
+======================
+
+Для приложений поддерживать концепции:
+
+S3-compatible storage
+signed URLs
+upload size limits
+MIME validation
+server-side authorization
+
+Cloud providers выбирать под проект.
+
+========================================
+WEB SECURITY
+============
+
+Подготовить безопасные patterns:
+
+CSP
+secure headers
+CORS
+CSRF protection
+XSS prevention
+SQL injection prevention
+input validation
+output encoding
+rate limiting
+safe file uploads
+secure cookie settings
+secret handling
+permission checks
+
+Не доверять frontend validation.
+
+========================================
+OBSERVABILITY
+=============
+
+Знать и уметь подключать при необходимости:
+
+OpenTelemetry
+Sentry
+
+Для маленького локального проекта не добавлять enterprise observability stack автоматически.
+
+Для production apps предусмотреть:
+
+structured logs
+error reporting
+request IDs
+health endpoints
+metrics при необходимости
+
+========================================
+DEPLOYMENT
+==========
+
+Подготовить систему к:
+
+Vercel
+Cloudflare
+Docker
+traditional Node server
+static hosting
+
+CLI:
+
+Vercel CLI
+Wrangler
+
+не обязательно устанавливать навсегда.
+
+Можно использовать:
+
+pnpm dlx
+npx
+
+если CLI нужен редко.
+
+========================================
+DOCKER
+======
+
+Проверь Docker.
+
+Не ставь Docker Desktop просто потому что он есть в списке.
+
+Если Docker уже установлен:
+
+проверь:
+
+docker --version
+docker compose version
+
+Если нет:
+
+оцени, нужен ли он реально для моих типов проектов.
+
+========================================
+PYTHON
+======
+
+Python — второй большой приоритет.
+
+Подготовить:
+
+Python stable
+uv
+
+Предпочитать uv для новых Python проектов.
+
+Python CLI apps устанавливать через:
+
+uv tool install
+
+или запускать через:
+
+uvx
+
+НЕ засорять system Python.
+
+========================================
+PYTHON QUALITY
+==============
+
+Основной modern tool:
+
+Ruff
+
+Ruff использовать для:
+
+lint
+format
+imports
+
+Не устанавливать Black + isort + Flake8 просто по привычке, если Ruff уже полностью закрывает требования проекта.
+
+Type checking:
+
+Pyright
+или
+mypy
+
+Выбирать в соответствии с проектом.
+
+========================================
+PYTHON PROJECT PROFILE
+======================
+
+Новый Python project желательно:
+
+pyproject.toml
+uv
+.venv
+Ruff
+pytest
+
+Дополнительно:
+
+type checker
+pre-commit
+
+только если нужен.
+
+========================================
+PYTHON LIBRARIES — НЕ GLOBAL
+============================
+
+Знать:
+
+FastAPI
+Uvicorn
+Django
+Flask
+Pydantic
+SQLAlchemy
+Alembic
+httpx
+aiohttp
+websockets
+Typer
+Click
+Rich
+Textual
+Pandas
+Polars
+NumPy
+Pillow
+OpenCV
+PySide6
+
+Но устанавливать ЛОКАЛЬНО под проект.
+
+========================================
+PYTHON PROFILING
+================
+
+CLI при необходимости:
+
+py-spy
+
+Project-specific:
+
+Scalene
+
+Не устанавливать всё подряд.
+
+========================================
+C / C++
+=======
+
+Большой приоритет.
+
+Подготовить:
+
+Visual Studio Build Tools
+MSVC
+Windows SDK
+CMake
+Ninja
+LLVM
+Clang
+clangd
+clang-format
+clang-tidy
+
+Опционально:
+
+MinGW-w64
+
+только если действительно нужен отдельный GNU Windows toolchain.
+
+========================================
+C++ DEPENDENCY MANAGEMENT
+=========================
+
+Подготовить:
+
+vcpkg
+
+Conan:
+
+только если полезен для моих проектов.
+
+Не создавать две competing dependency-management стратегии без причины.
+
+========================================
+C++ QUALITY
+===========
+
+Инструменты:
+
+clang-format
+clang-tidy
+Cppcheck
+
+Опционально:
+
+include-what-you-use
+
+если установка на Windows стабильна.
+
+========================================
+C++ TESTING
+===========
+
+Знать workflow:
+
+GoogleTest
+Catch2
+
+Dependencies ставить внутри проекта.
+
+========================================
+C++ BUILD
+=========
+
+Default reusable stack:
+
+CMake
++
+Ninja
++
+MSVC или Clang
+
+Поддержка:
+
+C++17
+C++20
+C++23
+
+Не менять стандарт существующего проекта.
+
+========================================
+BUILD ACCELERATION
+==================
+
+Рассмотреть:
+
+sccache
+
+если реально ускоряет мои проекты на Windows.
+
+Не добавлять сложный cache layer без пользы.
+
+========================================
+RUST
+====
+
+Подготовить:
+
+rustup
+stable toolchain
+cargo
+rustfmt
+clippy
+rust-analyzer
+
+Rust нужен также для:
+
+Tauri
+Rust projects
+некоторых современных CLI
+
+========================================
+DESKTOP DEVELOPMENT
+===================
+
+Основные варианты:
+
+Tauri
+.NET
+Flutter
+
+Дополнительно знать:
+
+Electron
+Avalonia
+WinUI 3
+WPF
+Qt
+
+Не ставить все SDK/frameworks одновременно, если они огромные.
+
+========================================
+TAURI
+=====
+
+Подготовить prerequisites:
+
+Rust stable MSVC
+WebView2
+Node LTS
+MSVC Build Tools
+
+Не устанавливать отдельный WebView2 runtime, если корректная версия уже присутствует в Windows.
+
+========================================
+.NET
+====
+
+Подготовить современный .NET SDK.
+
+Варианты desktop:
+
+WPF
+WinUI
+Avalonia
+
+Не устанавливать каждый Visual Studio workload.
+
+========================================
+FLUTTER
+=======
+
+Если Flutter уже используется:
+
+проверить:
+
+flutter doctor
+
+Dart
+Windows desktop toolchain
+PATH
+
+Не ставить Android Studio/Android SDK, если я сейчас не разрабатываю Android.
+
+========================================
+GAME DEVELOPMENT GENERAL
+========================
+
+Game-dev профиль не должен означать только Roblox.
+
+Подготовить общие полезные инструменты:
+
+Git LFS
+FFmpeg
+ImageMagick
+Blender integration только если Blender уже используется
+C++
+profilers
+debuggers
+asset conversion
+JSON/YAML tooling
+
+Не устанавливать Unity или Unreal автоматически.
+
+Они слишком большие.
+
+Только если уже присутствуют или явно нужны.
+
+========================================
+ROBLOX / LUAU
+=============
+
+Это МАЛЕНЬКИЙ дополнительный профиль.
+
+Подготовить только хороший core:
+
+Rojo
+Wally / актуальный package workflow
+StyLua
+Selene
+Luau language server
+
+Дополнительно:
+
+Lune
+Pesde
+
+только если они актуальны и реально полезны.
+
+Не ставить 20 Roblox tools.
+
+========================================
+ROBLOX SECURITY
+===============
+
+Только defensive development.
+
+Patterns:
+
+server-authoritative state
+RemoteEvent validation
+RemoteFunction validation
+rate limiting
+permission checks
+server-side inventory
+server-side economy
+server-side damage
+server-side purchases
+anti-dupe
+transaction idempotency
+audit logging
+movement sanity checks
+
+Никаких:
+
+executors
+injectors
+cheat loaders
+token grabbers
+malware
+exploit frameworks
+
+========================================
+SECURITY TOOLKIT
+================
+
+Полезные standalone инструменты:
+
+Gitleaks
+Trivy
+OSV-Scanner
+Semgrep
+
+Для Python:
+
+pip-audit / uv audit где применимо
+Bandit только если проекту нужен отдельный SAST
+
+Rust:
+
+cargo-audit
+
+JS:
+
+package manager audit
+
+Не запускать aggressive scans всего диска.
+
+Работать только с проектами пользователя.
+
+========================================
+SECRETS
+=======
+
+Никогда:
+
+* не печатай secrets
+* не включай secret values в отчёт
+* не коммить .env
+* не копируй API keys в шаблоны
+
+Создавать:
+
+.env.example
+
+с dummy values.
+
+========================================
+GIT / GITHUB
+============
+
+Подготовить:
+
+Git
+Git LFS
+gh
+delta
+lazygit
+
+Не логиниться в аккаунты без необходимости.
+
+Не удалять credential manager.
+
+Не менять remote URLs существующих проектов.
+
+========================================
+DEBUGGING
+=========
+
+Подготовить:
+
+Visual Studio debugger components
+WinDbg
+clang/LLDB where useful
+debugpy
+Node inspector
+
+Sysinternals:
+
+Process Explorer
+Process Monitor
+Autoruns
+TCPView
+
+Можно установить Sysinternals Suite вместо множества отдельных downloads.
+
+========================================
+NETWORK DEVELOPMENT
+===================
+
+Подготовить:
+
+curl
+OpenSSL
+DNS utilities
+
+Опционально:
+
+Wireshark
+tshark
+nmap
+
+Nmap использовать только для своих систем / diagnostics.
+
+Не устанавливать offensive frameworks.
+
+========================================
+BINARY INSPECTION
+=================
+
+Полезно:
+
+ImHex
+Dependencies
+dumpbin
+strings functionality
+
+Только legitimate debugging/research собственного ПО.
+
+========================================
+MEDIA / ASSET TOOLING
+=====================
+
+Проверить:
+
+FFmpeg
+
+Особенно проверить мой существующий FFmpeg PATH.
+
+Не создавать duplicate installation.
+
+Дополнительно:
+
+ImageMagick
+SVGO
+
+Web image conversion:
+
+WebP
+AVIF
+
+использовать через существующие инструменты/frameworks.
+
+========================================
+DOCUMENTATION
+=============
+
+CLI/project tools:
+
+markdownlint
+Mermaid
+Doxygen
+MkDocs
+VitePress
+TypeDoc
+
+Не устанавливать всё глобально.
+
+Создать templates/configs.
+
+========================================
+CONFIG FORMATS
+==============
+
+Полезные tools:
+
+jq → JSON
+yq → YAML
+
+Опционально:
+
+Taplo → TOML
+yamllint
+
+Только если нет дублирования.
+
+========================================
+SHELL SCRIPT QUALITY
+====================
+
+Если Windows dev projects содержат shell scripts:
+
+ShellCheck
+shfmt
+
+если они легко ставятся и не требуют огромной subsystem installation.
+
+========================================
+WSL
+===
+
+НЕ устанавливай WSL автоматически.
+
+Если WSL уже есть:
+
+проверь его.
+
+Если конкретный инструмент сильно лучше работает в WSL:
+
+укажи это в отчёте.
+
+Но Windows-native workflow является основным.
+
+========================================
+EDITOR
+======
+
+Если VS Code уже установлен, держать extensions минимальными.
+
+Базовый reasonable набор:
+
+* Python
+* Ruff
+* C/C++
+* clangd
+* CMake Tools
+* rust-analyzer
+* Tailwind CSS IntelliSense
+* ESLint
+* GitLens
+* Error Lens
+* EditorConfig
+
+И всё.
+
+Дополнительные extensions ставить ТОЛЬКО если нужен соответствующий тип проекта.
+
+Например:
+
+Flutter extension → если Flutter реально используется
+Rojo/Luau → если Roblox используется
+Docker → если Docker используется
+
+Не ставить 50 extensions заранее.
+
+========================================
+BIOME VS ESLINT
+===============
+
+Не устанавливать огромный ESLint plugin zoo.
+
+Для нового generic TS/React проекта:
+
+сначала рассматривать Biome как быстрый formatter/linter.
+
+Если framework/project требует ESLint или нужны specific ESLint rules:
+
+использовать ESLint.
+
+Если ESLint:
+
+использовать современный flat config.
+
+Не создавать legacy .eslintrc для нового проекта без причины.
+
+========================================
+PROJECT-LOCAL VERSION PINNING
+=============================
+
+Очень важно.
+
+Formatters
+linters
+test runners
+frameworks
+
+должны иметь версию в project manifest/lockfile.
+
+Например:
+
+Biome
+Vitest
+Playwright
+TypeScript
+Next
+Vite
+
+не должны зависеть от случайной global версии.
+
+========================================
+DEV TOOLKIT HOME
+================
+
+Создай:
+
+%USERPROFILE%\DevToolkit
+
+Структура:
+
+DevToolkit/
+docs/
+configs/
+templates/
+scripts/
+registry/
+logs/
+
+========================================
+CONFIG TEMPLATES
+================
+
+Создать лёгкие reusable examples:
+
+.editorconfig
+.gitignore examples
+biome.json example
+eslint flat config example
+tsconfig example
+ruff config
+pyproject example
+clang-format
+clang-tidy
+CMakePresets example
+stylua
+selene
+markdownlint
+
+НЕ копировать blindly в проекты.
+
+Использовать как templates.
+
+========================================
+PROJECT TEMPLATES
+=================
+
+Создать НЕ огромные проекты, а маленькие bootstrap profiles:
+
+web-next
+web-vite
+web-astro
+api-hono
+api-fastify
+python
+cpp-cmake
+tauri
+roblox
+
+Можно вообще вместо сохранённых node_modules сделать только:
+
+README
+manifest
+bootstrap command
+recommended stack
+
+Никаких node_modules в DevToolkit templates.
+
+========================================
+DEVNEW COMMAND
+==============
+
+Создай удобный PowerShell command/script:
+
+devnew
+
+Пример UX:
+
+devnew next myapp
+devnew vite mypanel
+devnew astro landing
+devnew api-hono backend
+devnew python bot
+devnew cpp editor
+devnew tauri launcher
+devnew roblox game
+
+Он должен:
+
+1. создать проект через официальный актуальный scaffolder;
+2. использовать stable releases;
+3. использовать pnpm по умолчанию для JS;
+4. не ставить optional libraries без необходимости;
+5. создать Git repository только если я этого хочу либо это безопасный выбранный default;
+6. показать следующие команды.
+
+Не придумывай custom framework generator, если официальный scaffolder лучше.
+
+========================================
+DEV-DOCTOR
+==========
+
+Создай:
+
+dev-doctor.ps1
+
+и удобный command:
+
+dev-doctor
+
+Он анализирует текущую папку.
+
+Определение проекта:
+
+package.json
+pnpm-lock.yaml
+package-lock.json
+bun.lock
+pyproject.toml
+requirements.txt
+CMakeLists.txt
+Cargo.toml
+pubspec.yaml
+*.sln
+*.csproj
+default.project.json
+wally.toml
+
+Показывает:
+
+PROJECT TYPE
+PACKAGE MANAGER
+RUNTIME
+COMPILER
+AVAILABLE TOOLS
+BUILD COMMAND
+TEST COMMAND
+LINT COMMAND
+FORMAT COMMAND
+MISSING REQUIREMENTS
+
+Не менять проект автоматически.
+
+========================================
+DEV-VERSIONS
+============
+
+Создай command:
+
+dev-versions
+
+который быстро показывает:
+
+Git
+gh
+Node
+npm
+pnpm
+Bun
+Deno
+Python
+uv
+Rust
+Cargo
+CMake
+Ninja
+Clang
+clangd
+MSVC
+dotnet
+Flutter
+Dart
+Java
+FFmpeg
+Docker
+Rojo
+StyLua
+Selene
+
+Только установленное.
+
+========================================
+DEV-UPDATE
+==========
+
+Создай безопасный:
+
+update-dev-tools.ps1
+
+Он может обновлять GLOBAL tooling:
+
+winget packages
+pnpm
+Bun
+uv
+uv tools
+Rust
+cargo CLI
+
+Но НИКОГДА не должен автоматически делать:
+
+pnpm update
+npm update
+uv sync --upgrade
+
+во всех существующих проектах.
+
+Project dependencies принадлежат project lockfiles.
+
+========================================
+GLOBAL TOOL REGISTRY
+====================
+
+Создай:
+
+%USERPROFILE%\DevToolkit\registry\tools.json
+
+или YAML.
+
+Для каждого tool:
+
+name
+category
+version
+install source
+executable
+global/local
+path
+update command
+purpose
+
+Это должен быть machine-readable registry.
+
+========================================
+TOOLKIT DOCUMENTATION
+=====================
+
+Создай:
+
+%USERPROFILE%\DevToolkit\TOOLKIT.md
+
+Кратко описать:
+
+что глобально установлено;
+что запускать через dlx;
+что project-local;
+какой stack выбирать под задачу.
+
+Не делай файл на 100000 строк.
+
+========================================
+CODEX GLOBAL AWARENESS
+======================
+
+Я хочу, чтобы будущие Codex sessions знали о DevToolkit.
+
+Сначала проверь, как ТЕКУЩАЯ установленная версия Codex загружает user-level global instructions.
+
+Если она поддерживает:
+
+%USERPROFILE%.codex\AGENTS.md
+
+используй официальный текущий mechanism.
+
+НЕ ПЕРЕЗАПИСЫВАЙ существующий AGENTS.md.
+
+Сначала прочитай его.
+
+Затем аккуратно добавь небольшой раздел, только если это безопасно.
+
+Пример смысла:
+
+# Local development environment
+
+This machine has a reusable development toolkit at:
+%USERPROFILE%\DevToolkit
+
+Before installing new global development software:
+
+* inspect existing tools;
+* run dev-doctor / dev-versions when useful;
+* prefer existing installed SDKs;
+* prefer project-local dependencies;
+* use pnpm for new JS/TS projects unless the project specifies another package manager;
+* use uv for new Python projects;
+* do not install editor plugins, MCP servers, frameworks or global npm packages without a clear need;
+* consult %USERPROFILE%\DevToolkit\TOOLKIT.md for available tooling.
+
+Этот GLOBAL AGENTS.md должен быть КОРОТКИМ.
+
+НЕ вставляй туда весь этот огромный prompt.
+
+Не засоряй context будущих чатов.
+
+Если установленная версия Codex НЕ поддерживает этот механизм или работает с ним нестабильно:
+
+НЕ придумывай решение.
+
+Просто укажи это в отчёте.
+
+========================================
+PER-PROJECT AGENTS
+==================
+
+Не создавай AGENTS.md автоматически в каждом моём repository.
+
+Только если:
+
+я явно попросил
+
+или
+
+project реально нуждается в специфических agent instructions.
+
+========================================
+NO AI INFRASTRUCTURE BLOAT
+==========================
+
+Не устанавливать автоматически:
+
+MCP servers
+AI coding skills
+agent registries
+vector databases
+local LLM servers
+Ollama
+embedding systems
+RAG databases
+AI browser plugins
+
+только потому что они существуют.
+
+Если конкретный project потребует их — установим потом.
+
+========================================
+SOURCE TRUST
+============
+
+Для установки использовать в порядке предпочтения:
+
+1. официальный package manager
+2. официальный GitHub release
+3. официальный installer
+4. официальная документация
+
+Избегать:
+
+random mirrors
+file sharing sites
+unknown binaries
+abandoned forks
+
+========================================
+CURRENTNESS CHECK
+=================
+
+Так как tooling быстро меняется:
+
+перед установкой проверь текущую документацию.
+
+Особенно:
+
+frameworks
+auth libraries
+ORMs
+Roblox tools
+AI-related tools
+deployment CLIs
+
+Если мой список содержит deprecated tool:
+
+НЕ устанавливай его.
+
+Замени современным вариантом и объясни замену.
+
+========================================
+STABLE ONLY
+===========
+
+По умолчанию:
+
+stable
+LTS
+
+Не:
+
+beta
+alpha
+nightly
+RC
+canary
+
+Исключение:
+
+если stable версия проекта отсутствует и я явно согласился использовать prerelease.
+
+========================================
+HEAVY SOFTWARE POLICY
+=====================
+
+Перед установкой чего-то тяжёлого:
+
+Visual Studio workload
+Docker Desktop
+Android Studio
+Unity
+Unreal Engine
+Qt full SDK
+
+сначала оцени:
+
+есть ли это уже;
+нужно ли это сейчас;
+сколько примерно места занимает;
+есть ли более лёгкий вариант.
+
+Не захламляй диск.
+
+========================================
+DON'T BREAK WINDOWS
+===================
+
+НЕ:
+
+disable Defender
+disable SmartScreen
+disable Firewall
+disable UAC
+set global ExecutionPolicy Unrestricted
+disable security services
+edit registry security policies
+remove Windows components
+modify boot config
+
+Для единичного trusted PowerShell installer допускается process-scoped bypass, если это официальный installation path.
+
+========================================
+DON'T BREAK PATH
+================
+
+PATH:
+
+* preserve current values
+* deduplicate entries
+* use user PATH where possible
+* don't erase existing entries
+
+Проверять executable resolution:
+
+Get-Command
+
+where.exe
+
+После PATH изменения открыть новую shell для проверки.
+
+========================================
+DON'T BREAK PROJECTS
+====================
+
+НИКОГДА массово не менять существующие projects.
+
+Не:
+
+upgrade framework versions
+replace package manager
+replace ESLint with Biome
+replace ORM
+rewrite tsconfig
+convert npm → pnpm
+change Python environment
+change CMake generator
+
+без отдельной задачи.
+
+Эта настройка касается WORKSTATION, а не миграции моих репозиториев.
+
+========================================
+INSTALLATION EXECUTION
+======================
+
+После inventory реально выполняй установку безопасных необходимых global tools.
+
+Не ограничивайся:
+
+"You should install..."
+
+Если tool:
+
+* безопасен
+* небольшой
+* general-purpose
+* нужен workstation
+* имеет официальный installation method
+
+можешь устанавливать.
+
+Если huge/optional:
+
+не устанавливай автоматически.
+
+========================================
+FAILURE HANDLING
+================
+
+Если установка одного инструмента упала:
+
+1. запиши ошибку;
+2. проверь официальный alternative installation method;
+3. попробуй один разумный fallback;
+4. не ломай систему;
+5. продолжай остальные независимые пункты.
+
+========================================
+FINAL VERIFICATION
+==================
+
+Проверить минимум:
+
+git --version
+git lfs version
+gh --version
+
+node --version
+npm --version
+pnpm --version
+bun --version
+
+python --version
+uv --version
+
+rustc --version
+cargo --version
+
+cmake --version
+ninja --version
+clang --version
+clangd --version
+
+dotnet --version
+
+ffmpeg -version
+
+и только если установлены:
+
+deno --version
+flutter --version
+dart --version
+docker --version
+rojo --version
+
+========================================
+VERIFY PATH
+===========
+
+Используй Get-Command для ключевых binaries.
+
+Проверь:
+
+duplicate installations
+stale PATH entries
+multiple Python installations
+multiple Node installations
+duplicate FFmpeg
+old CMake
+old Git
+
+Не удаляй автоматически конфликтующую версию, если не уверен.
+
+========================================
+FINAL REPORT
+============
+
+После выполнения выдай структурированный отчёт:
+
+SYSTEM
+
+GLOBAL TOOLS INSTALLED
+
+GLOBAL TOOLS ALREADY PRESENT
+
+UPDATED
+
+SKIPPED
+
+OPTIONAL / NOT INSTALLED
+
+WEB TOOLCHAIN
+
+PYTHON TOOLCHAIN
+
+C++ TOOLCHAIN
+
+DESKTOP TOOLCHAIN
+
+GAME DEV TOOLCHAIN
+
+ROBLOX TOOLCHAIN
+
+SECURITY TOOLCHAIN
+
+DEBUGGING TOOLCHAIN
+
+DATABASE TOOLCHAIN
+
+DEPLOYMENT TOOLCHAIN
+
+PROJECT SCAFFOLDERS
+
+DEVTOOLKIT FILES CREATED
+
+PATH CHANGES
+
+CODEX GLOBAL INSTRUCTIONS STATUS
+
+PROBLEMS / WARNINGS
+
+RESTART REQUIRED
+
+========================================
+FINAL CHEAT SHEET
+=================
+
+В самом конце:
+
+DEV WORKSTATION READY
+
+NEW NEXT:
+...
+
+NEW VITE:
+...
+
+NEW ASTRO:
+...
+
+NEW API:
+...
+
+NEW PYTHON:
+...
+
+NEW C++:
+...
+
+NEW TAURI:
+...
+
+CHECK PROJECT:
+dev-doctor
+
+CHECK TOOL VERSIONS:
+dev-versions
+
+UPDATE GLOBAL DEV TOOLS:
+...
+
+TOOLKIT:
+%USERPROFILE%\DevToolkit
+
+========================================
+MAIN PHILOSOPHY
+===============
+
+Мне нужна мощная workstation, а не мусорка.
+
+Лучше:
+
+30 действительно полезных global tools
+
+*
+
+правильные on-demand project dependencies
+
+чем:
+
+300 global npm packages
+100 VS Code extensions
+20 MCP servers
+15 UI libraries одновременно.
+
+Когда есть выбор:
+
+prefer fewer
+prefer faster
+prefer maintained
+prefer official
+prefer stable
+prefer reusable
+prefer project-local dependency versions
+prefer simple architecture until complexity is justified.
+
+Основной упор:
+
+WEB / FULLSTACK / UI
+PYTHON
+C++
+DESKTOP
+GENERAL SOFTWARE DEVELOPMENT
+
+Roblox — только один дополнительный profile.
+
+Начинай с inventory.
+
+После inventory продолжай установку и настройку самостоятельно.
+
+Не останавливайся после списка рекомендаций.
+
+Выполни всё безопасное и разумное, что можно выполнить сейчас.

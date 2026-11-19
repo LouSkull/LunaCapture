@@ -43,6 +43,9 @@ public:
     }
 
     HDC dc() const { return dc_; }
+    void* pixels() const { return pixels_; }
+    int width() const { return width_; }
+    int height() const { return height_; }
 
     RECT bounds() const { return RECT{0, 0, width_, height_}; }
 
@@ -71,6 +74,76 @@ bool IsNonUniform(const std::vector<std::uint32_t>& pixels) {
     return std::any_of(pixels.begin() + 1, pixels.end(), [first](std::uint32_t pixel) {
         return (pixel & 0x00FFFFFFu) != first;
     });
+}
+
+BYTE LegacyRoundedCoverage(int x, int y, int width, int height, int radius) {
+    radius = (std::max)(0, (std::min)(radius, (std::min)(width, height) / 2));
+    if (radius == 0 || (x >= radius && x < width - radius) ||
+        (y >= radius && y < height - radius)) {
+        return 255;
+    }
+
+    const float centerX = x < radius ? static_cast<float>(radius) : static_cast<float>(width - radius);
+    const float centerY = y < radius ? static_cast<float>(radius) : static_cast<float>(height - radius);
+    constexpr int kSamples = 4;
+    int inside = 0;
+    for (int sy = 0; sy < kSamples; ++sy) {
+        for (int sx = 0; sx < kSamples; ++sx) {
+            const float px = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / kSamples;
+            const float py = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / kSamples;
+            const float dx = px - centerX;
+            const float dy = py - centerY;
+            if (dx * dx + dy * dy <= static_cast<float>(radius * radius)) ++inside;
+        }
+    }
+    return static_cast<BYTE>((inside * 255 + (kSamples * kSamples) / 2) / (kSamples * kSamples));
+}
+
+void TestRoundedCoverageCacheEquivalence() {
+    struct SizeCase { int width; int height; };
+    constexpr std::array<SizeCase, 12> sizes{{
+        {1, 1}, {2, 3}, {3, 2}, {4, 4}, {5, 7}, {8, 5},
+        {13, 17}, {22, 22}, {31, 19}, {48, 64}, {64, 48}, {81, 53},
+    }};
+    constexpr std::array<int, 10> radii{{-3, 0, 1, 2, 3, 7, 11, 16, 22, 100}};
+
+    for (const auto size : sizes) {
+        for (const int radius : radii) {
+            bool exact = true;
+            for (int y = 0; y < size.height && exact; ++y) {
+                for (int x = 0; x < size.width; ++x) {
+                    if (ui::RoundedRectPixelCoverage(x, y, size.width, size.height, radius) !=
+                        LegacyRoundedCoverage(x, y, size.width, size.height, radius)) {
+                        exact = false;
+                        break;
+                    }
+                }
+            }
+            Expect(exact, "cached rounded coverage exactly matches the legacy supersampling mask");
+        }
+    }
+    Expect(ui::RoundedRectPixelCoverage(-1, 0, 64, 48, 16) == 0 &&
+           ui::RoundedRectPixelCoverage(64, 0, 64, 48, 16) == 0,
+           "rounded coverage rejects pixels outside the supplied bounds");
+}
+
+void TestOpaqueAlphaRepair(DibSurface& surface) {
+    surface.Clear(0x00123456u);
+    // Exercise the real DIB through a GDI fill, which leaves its reserved alpha
+    // byte undefined, then verify the repair preserves every BGR channel.
+    HBRUSH brush = CreateSolidBrush(RGB(0x56, 0x34, 0x12));
+    const RECT bounds = surface.bounds();
+    FillRect(surface.dc(), &bounds, brush);
+    DeleteObject(brush);
+    const auto before = surface.Snapshot();
+    ui::MakeLayeredSurfaceOpaque(surface.pixels(), surface.width(), surface.height());
+    const auto after = surface.Snapshot();
+    bool exact = before.size() == after.size();
+    for (std::size_t i = 0; i < before.size() && exact; ++i) {
+        exact = (after[i] & 0x00FFFFFFu) == (before[i] & 0x00FFFFFFu) &&
+                (after[i] & 0xFF000000u) == 0xFF000000u;
+    }
+    Expect(exact, "opaque alpha repair preserves BGR and restores alpha after GDI drawing");
 }
 
 void TestExactThemeRoles() {
@@ -429,6 +502,8 @@ int main() {
         return 1;
     }
 
+    TestRoundedCoverageCacheEquivalence();
+    TestOpaqueAlphaRepair(surface);
     TestExactThemeRoles();
     TestPaletteClamping();
     TestAppearanceState();

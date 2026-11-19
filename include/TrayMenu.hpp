@@ -16,32 +16,9 @@ enum class TrayCommand : UINT {
     CaptureRegion,
     CaptureWindow,
     OpenFolder,
-    ToggleRecording,
-    ToggleReplay,
-    SaveReplay,
-    OpenReplayCenter,
-    OpenRecordings,
     ToggleSound,
     ToggleNotifications,
     Exit,
-    SaveReplayMonitor0,
-    SaveReplayMonitor1,
-    SaveReplayMonitor2,
-    SaveReplayMonitor3,
-    SaveReplayMonitor4,
-    SaveReplayMonitor5,
-    SaveReplayMonitor6,
-    SaveReplayMonitor7,
-    PluginCommand,
-};
-
-struct TrayPluginCommand {
-    std::wstring title;
-    std::wstring icon;
-    std::wstring pluginId;
-    std::wstring commandId;
-    std::size_t pluginIndex = 0;
-    std::size_t commandIndex = 0;
 };
 
 class TrayMenu {
@@ -51,10 +28,11 @@ public:
 
     bool Create(HINSTANCE instance, HWND notifyWindow);
     void Destroy();
-    void Show(POINT screenPoint, const AppSettings& settings, bool recording, bool replayBuffering,
-              std::uint32_t activeReplayMask, const std::vector<TrayPluginCommand>& pluginCommands);
+    void Show(POINT screenPoint, const AppSettings& settings);
     void Hide();
     void RefreshTheme();
+    bool SetCapturePrivacy(bool enabled, std::wstring& error);
+    HWND Handle() const noexcept { return hwnd_; }
 
 private:
     struct Item {
@@ -64,14 +42,12 @@ private:
         std::wstring shortcut;
         bool separatorBefore = false;
         bool checked = false;
-        std::size_t dataIndex = 0;
     };
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void Paint();
     bool RecreateFonts();
-    void UpdateThemeTimer();
     bool EnsureBackBuffer(int width, int height);
     void ReleaseGraphics();
     int HitTest(POINT point) const;
@@ -80,6 +56,7 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND notifyWindow_ = nullptr;
     HWND hwnd_ = nullptr;
+    bool privateCapture_ = false;
     std::vector<Item> items_;
     int hovered_ = -1;
     int pressed_ = -1;

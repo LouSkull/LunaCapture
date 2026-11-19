@@ -174,6 +174,7 @@ int ResolveThemeStrokeWidth(int width);
 int ResolveThemeDuration(int durationMs);
 HFONT CreateThemeFont(int pixels, int weight = FW_NORMAL, bool italic = false);
 bool IsThemeBackdropAnimated() noexcept;
+bool AreSystemAnimationsEnabled() noexcept;
 void SetTranslations(const std::vector<std::pair<std::wstring, std::wstring>>& translations);
 void ResetTranslations();
 std::wstring TranslateText(const std::wstring& source);
@@ -200,8 +201,8 @@ public:
     ScopedThemeBypass& operator=(const ScopedThemeBypass&) = delete;
 };
 
-// Security-sensitive host copy (permission review, plugin management) must not
-// be relabelled by a third-party locale pack while the user is making a choice.
+// Security-sensitive host copy (for example, a permission review) must not be
+// relabelled by a third-party locale pack while the user is making a choice.
 class ScopedTranslationBypass {
 public:
     ScopedTranslationBypass();
@@ -261,6 +262,10 @@ void MakeLayeredSurfaceOpaque(void* pixels, int width, int height);
 // and gives Windows 10 smooth, non-black corner pixels.
 bool PresentRoundedLayeredWindow(HWND window, HDC source, void* pixels,
                                  int width, int height, int radius, BYTE opacity = 255);
+
+// Per-pixel supersampled coverage used by the layered-window corner mask.
+// Radius is clamped to the supplied bounds; points outside them have no coverage.
+BYTE RoundedRectPixelCoverage(int x, int y, int width, int height, int radius);
 
 // Hit-test helper matching the visual alpha mask above.
 bool PointInRoundedRect(POINT point, int width, int height, int radius);

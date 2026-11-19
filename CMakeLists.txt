@@ -20,21 +20,13 @@ endif()
 add_executable(LunaCapture WIN32
     src/main.cpp
     src/App.cpp
-    src/AudioMixer.cpp
     src/CaptureEngine.cpp
     src/CoreUtils.cpp
     src/Localization.cpp
-    src/LunaScript.cpp
-    src/MediaViewerWindow.cpp
     src/OverlayWindow.cpp
-    src/PluginInstallPrompt.cpp
-    src/PluginSystem.cpp
-    src/QuickPanel.cpp
     src/RegionEditor.cpp
-    src/RecordingEngine.cpp
     src/SettingsStore.cpp
     src/SoundPlayer.cpp
-    src/ThumbnailCache.cpp
     src/TrayMenu.cpp
     src/UiGfx.cpp
     src/UiIcons.cpp
@@ -69,6 +61,7 @@ endif()
 
 target_link_libraries(LunaCapture PRIVATE
     d3d11
+    d3dcompiler
     dxgi
     windowscodecs
     dwmapi
@@ -79,13 +72,6 @@ target_link_libraries(LunaCapture PRIVATE
     winmm
     msimg32
     gdiplus
-    mfplat
-    mfreadwrite
-    mfplay
-    mfuuid
-    avrt
-    mmdevapi
-    propsys
     user32
     gdi32
     advapi32
@@ -103,7 +89,7 @@ add_custom_command(TARGET LunaCapture POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/docs"
             "$<TARGET_FILE_DIR:LunaCapture>/docs"
-    COMMENT "Copying the offline LunaScript SDK"
+    COMMENT "Copying offline documentation"
 )
 
 # ---------------------------------------------------------------------------
@@ -131,7 +117,7 @@ if(MSVC)
         /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf)
 endif()
 target_link_libraries(LunaSetup PRIVATE
-    d3d11 dxgi dwmapi shell32 shlwapi ole32 oleaut32 uuid gdiplus gdi32 user32 advapi32 winhttp mfplat)
+    d3d11 dxgi dwmapi shell32 shlwapi ole32 oleaut32 uuid gdiplus gdi32 user32 advapi32 winhttp)
 set_target_properties(LunaSetup PROPERTIES
     OUTPUT_NAME "LunaSetup"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -154,33 +140,30 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(LunaShotCoreTests tests/core_tests.cpp src/CoreUtils.cpp src/Localization.cpp src/LunaScript.cpp)
+    add_executable(LunaCapturePrivacyTests tests/capture_privacy_tests.cpp tests/live_desktop_probe.cpp
+        src/CaptureEngine.cpp src/WicEncoder.cpp
+        src/OverlayWindow.cpp src/TrayMenu.cpp src/RegionEditor.cpp src/WinUtil.cpp
+        src/UiGfx.cpp src/UiIcons.cpp src/CoreUtils.cpp src/Localization.cpp)
+    target_include_directories(LunaCapturePrivacyTests PRIVATE include)
+    target_compile_features(LunaCapturePrivacyTests PRIVATE cxx_std_20)
+    target_compile_definitions(LunaCapturePrivacyTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+    if(MSVC)
+        target_compile_options(LunaCapturePrivacyTests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    target_link_libraries(LunaCapturePrivacyTests PRIVATE windowsapp windowscodecs d3d11 dxgi gdiplus user32 gdi32 dwmapi shell32 shlwapi ole32 uuid uxtheme msimg32 advapi32)
+    add_test(NAME LunaCapturePrivacyTests COMMAND LunaCapturePrivacyTests)
+    set_tests_properties(LunaCapturePrivacyTests PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(LunaShotBindingTests tests/binding_tests.cpp)
+    target_include_directories(LunaShotBindingTests PRIVATE include)
+    target_compile_features(LunaShotBindingTests PRIVATE cxx_std_20)
+    add_test(NAME LunaShotBindingTests COMMAND LunaShotBindingTests)
+    add_executable(LunaShotCoreTests tests/core_tests.cpp src/CoreUtils.cpp src/Localization.cpp)
     target_include_directories(LunaShotCoreTests PRIVATE include)
     target_compile_features(LunaShotCoreTests PRIVATE cxx_std_20)
     if(MSVC)
         target_compile_options(LunaShotCoreTests PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
     endif()
     add_test(NAME LunaShotCoreTests COMMAND LunaShotCoreTests)
-
-    add_executable(LunaShotPluginDispatchTests tests/plugin_dispatch_tests.cpp)
-    target_include_directories(LunaShotPluginDispatchTests PRIVATE include)
-    target_compile_features(LunaShotPluginDispatchTests PRIVATE cxx_std_20)
-    if(MSVC)
-        target_compile_options(LunaShotPluginDispatchTests PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
-    endif()
-    add_test(NAME LunaShotPluginDispatchTests COMMAND LunaShotPluginDispatchTests)
-
-    add_executable(LunaShotPluginExampleTests tests/plugin_examples_tests.cpp src/LunaScript.cpp)
-    target_include_directories(LunaShotPluginExampleTests PRIVATE include)
-    target_compile_features(LunaShotPluginExampleTests PRIVATE cxx_std_20)
-    target_compile_definitions(LunaShotPluginExampleTests PRIVATE
-        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00
-        LUNA_PLUGIN_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/plugins"
-    )
-    if(MSVC)
-        target_compile_options(LunaShotPluginExampleTests PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
-    endif()
-    add_test(NAME LunaShotPluginExampleTests COMMAND LunaShotPluginExampleTests)
 
     add_executable(LunaShotThemeTests
         tests/theme_tests.cpp
@@ -198,36 +181,6 @@ if(BUILD_TESTING)
     target_link_libraries(LunaShotThemeTests PRIVATE gdiplus user32 gdi32)
     add_test(NAME LunaShotThemeTests COMMAND LunaShotThemeTests)
 
-    add_executable(LunaShotRecordingSmoke EXCLUDE_FROM_ALL
-        tests/recording_smoke.cpp
-        src/AudioMixer.cpp
-        src/CaptureEngine.cpp
-        src/Localization.cpp
-        src/RecordingEngine.cpp
-        src/UiGfx.cpp
-        src/UiIcons.cpp
-        src/WinUtil.cpp
-        src/CoreUtils.cpp
-        src/WicEncoder.cpp
-    )
-    target_include_directories(LunaShotRecordingSmoke PRIVATE include)
-    target_compile_features(LunaShotRecordingSmoke PRIVATE cxx_std_20)
-    target_compile_definitions(LunaShotRecordingSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
-    if(MSVC)
-        target_compile_options(LunaShotRecordingSmoke PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
-    endif()
-    target_link_libraries(LunaShotRecordingSmoke PRIVATE
-        d3d11 dxgi windowscodecs dwmapi shell32 shlwapi ole32 uuid user32 gdi32 gdiplus
-        mfplat mfreadwrite mfuuid avrt mmdevapi propsys uxtheme
-    )
-
-    add_executable(LunaShotMediaPlayerSmoke EXCLUDE_FROM_ALL tests/media_player_smoke.cpp)
-    target_compile_features(LunaShotMediaPlayerSmoke PRIVATE cxx_std_20)
-    target_compile_definitions(LunaShotMediaPlayerSmoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00)
-    if(MSVC)
-        target_compile_options(LunaShotMediaPlayerSmoke PRIVATE /W4 /permissive- /EHsc /utf-8 /Zc:__cplusplus)
-    endif()
-    target_link_libraries(LunaShotMediaPlayerSmoke PRIVATE mfplat mfplay mfuuid ole32 uuid user32)
 endif()
 
 install(TARGETS LunaCapture RUNTIME DESTINATION .)

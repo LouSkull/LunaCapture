@@ -1,4 +1,5 @@
 #include "WinUtil.hpp"
+#include "WicEncoder.hpp"
 #include "CoreUtils.hpp"
 #include "UiGfx.hpp"
 #include "UiIcons.hpp"
@@ -20,9 +21,9 @@
 #include <sstream>
 
 namespace {
-std::wstring KnownFolder(REFKNOWNFOLDERID id) {
+std::wstring KnownFolder(REFKNOWNFOLDERID id, bool create = true) {
     PWSTR raw = nullptr;
-    if (FAILED(SHGetKnownFolderPath(id, KF_FLAG_CREATE, nullptr, &raw)) || raw == nullptr) return {};
+    if (FAILED(SHGetKnownFolderPath(id, create ? KF_FLAG_CREATE : KF_FLAG_DEFAULT, nullptr, &raw)) || raw == nullptr) return {};
     std::wstring result(raw);
     CoTaskMemFree(raw);
     return result;
@@ -64,6 +65,8 @@ std::wstring VirtualKeyName(UINT vk) {
         case VK_LAUNCH_MEDIA_SELECT: return L"Launch Media";
         case VK_LAUNCH_APP1: return L"Launch App 1";
         case VK_LAUNCH_APP2: return L"Launch App 2";
+        case VK_XBUTTON1: return L"Mouse X1";
+        case VK_XBUTTON2: return L"Mouse X2";
         default: break;
     }
     UINT scan = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
@@ -74,14 +77,68 @@ std::wstring VirtualKeyName(UINT vk) {
     return L"VK " + std::to_wstring(vk);
 }
 
+// Windows that belong to the shell, the input stack or an application's own
+// plumbing. Every one of these passes IsWindowVisible and several of them sit
+// above real windows in z-order, so without this list the window picker
+// highlights them instead of the application under the cursor.
+bool IsShellOrHelperWindowClass(const wchar_t* className) {
+    static constexpr const wchar_t* kBlockedClasses[] = {
+        L"Progman", L"WorkerW", L"Shell_TrayWnd", L"Shell_SecondaryTrayWnd",
+        L"NotifyIconOverflowWindow", L"TopLevelWindowForOverflowXamlIsland",
+        L"Windows.UI.Input.InputSite.WindowClass", L"Xaml_WindowedPopupClass",
+        L"tooltips_class32", L"SysShadow", L"DummyDWMListenerWindow",
+        L"MSCTFIME UI", L"IME", L"Default IME", L"CicMarshalWnd",
+        L"OleMainThreadWndClass", L"GDI+ Hook Window Class",
+    };
+    for (const wchar_t* blocked : kBlockedClasses) {
+        if (wcscmp(className, blocked) == 0) return true;
+    }
+    return false;
+}
+
 bool IsUsableForegroundWindow(HWND window, HWND applicationWindow) {
     if (!window || window == applicationWindow || !IsWindowVisible(window) || IsIconic(window)) return false;
     wchar_t className[128]{};
     GetClassNameW(window, className, static_cast<int>(std::size(className)));
-    if (wcscmp(className, L"Progman") == 0 || wcscmp(className, L"WorkerW") == 0 ||
-        wcscmp(className, L"Shell_TrayWnd") == 0) return false;
+    if (IsShellOrHelperWindowClass(className)) return false;
     BOOL cloaked = FALSE;
     if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
+
+    RECT bounds{};
+    if (!GetWindowRect(window, &bounds)) return false;
+    const LONG width = bounds.right - bounds.left;
+    const LONG height = bounds.bottom - bounds.top;
+    // Anything this small is plumbing, not a capture target: shadow strips around
+    // a real window (Telegram-style "WindowShadow" borders) and accessibility
+    // helpers sit exactly on the edges of the window the user is aiming at.
+    if (width < 32 || height < 32) return false;
+
+    const LONG_PTR extendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    // Click-through overlays - the GeForce/Discord/Steam overlay, performance counters,
+    // desktop widgets - stretch across the whole screen and sit above everything
+    // in z-order. They can never be the window the user is pointing at: the mouse
+    // passes straight through them.
+    if (extendedStyle & WS_EX_TRANSPARENT) return false;
+    if (extendedStyle & WS_EX_TOOLWINDOW) {
+        // Luna's own tool windows (quick panel, tray menu, notification overlay)
+        // are chrome for the capture, never the subject of one.
+        DWORD processId = 0;
+        GetWindowThreadProcessId(window, &processId);
+        if (processId == GetCurrentProcessId()) return false;
+        // Untitled tool windows are IME hosts, tray flyouts and similar helpers.
+        // A titled one can still be a genuine floating palette, so it stays.
+        if (GetWindowTextLengthW(window) == 0) return false;
+        // ...unless it covers a whole display. A tool window is auxiliary chrome
+        // by definition and never legitimately fills a monitor; one that does is
+        // an overlay (the second, non-click-through GeForce overlay window is
+        // exactly this) and would answer for every point on that screen.
+        MONITORINFO monitor{sizeof(monitor)};
+        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+            const LONG monitorWidth = monitor.rcMonitor.right - monitor.rcMonitor.left;
+            const LONG monitorHeight = monitor.rcMonitor.bottom - monitor.rcMonitor.top;
+            if (width * 50 >= monitorWidth * 49 && height * 50 >= monitorHeight * 49) return false;
+        }
+    }
     return true;
 }
 
@@ -595,21 +652,15 @@ LRESULT CALLBACK ChoiceDialogProc(HWND window, UINT message, WPARAM wParam, LPAR
 }
 }
 
-std::wstring GetLocalAppDataDirectory() {
-    const auto base = KnownFolder(FOLDERID_LocalAppData);
+std::wstring GetLocalAppDataDirectory(bool createKnownFolder) {
+    const auto base = KnownFolder(FOLDERID_LocalAppData, createKnownFolder);
     return base.empty() ? L"." : (std::filesystem::path(base) / L"Luna Capture").wstring();
 }
 
-std::wstring GetDefaultScreenshotDirectory() {
-    const auto pictures = KnownFolder(FOLDERID_Pictures);
+std::wstring GetDefaultScreenshotDirectory(bool createKnownFolder) {
+    const auto pictures = KnownFolder(FOLDERID_Pictures, createKnownFolder);
     if (!pictures.empty()) return (std::filesystem::path(pictures) / L"Luna Capture").wstring();
-    return (std::filesystem::path(GetLocalAppDataDirectory()) / L"Screenshots").wstring();
-}
-
-std::wstring GetDefaultRecordingDirectory() {
-    const auto videos = KnownFolder(FOLDERID_Videos);
-    if (!videos.empty()) return (std::filesystem::path(videos) / L"Luna Capture").wstring();
-    return (std::filesystem::path(GetLocalAppDataDirectory()) / L"Recordings").wstring();
+    return (std::filesystem::path(GetLocalAppDataDirectory(createKnownFolder)) / L"Screenshots").wstring();
 }
 
 std::wstring GetSoundLibraryDirectory() {
@@ -630,9 +681,8 @@ bool EnsureDirectoryExists(const std::wstring& path) {
 }
 
 void ApplyChronologicalFolderView(const std::wstring& directory) {
-    // A folder under Pictures or Videos inherits that library's Explorer template,
-    // and those templates sort by "Date taken" / "Media created" — metadata that
-    // screen captures do not carry. Explorer then falls back to an order that
+    // A folder under Pictures inherits its library's Explorer template, which
+    // sorts by "Date taken" metadata that screen captures do not carry. Explorer then falls back to an order that
     // looks random. Pinning the folder to the generic template makes it sort by
     // name instead, and our filenames are chronological by construction
     // (YYYY-MM-DD_HH-MM-SS_mmm_...), so name order *is* date order.
@@ -690,6 +740,34 @@ std::wstring FormatHotkey(UINT modifiers, UINT vk) {
     if (!result.empty()) result += L" + ";
     result += key;
     return result;
+}
+
+std::wstring FormatHotkeyCompact(UINT modifiers, UINT vk) {
+    if (vk == 0) return L"Disabled";
+    std::wstring result;
+    auto add = [&result](const wchar_t* part) {
+        if (!result.empty()) result += L" + ";
+        result += part;
+    };
+    if (modifiers & MOD_CONTROL) add(L"Ctrl");
+    if (modifiers & MOD_ALT) add(L"Alt");
+    if (modifiers & MOD_SHIFT) add(L"Shift");
+    if (modifiers & MOD_WIN) add(L"Win");
+
+    std::wstring key = VirtualKeyName(vk);
+    if (key == L"Print Screen") key = L"PrtSc";
+    else if (key == L"Page Up") key = L"PgUp";
+    else if (key == L"Page Down") key = L"PgDn";
+    else if (key == L"Volume Up") key = L"Vol +";
+    else if (key == L"Volume Down") key = L"Vol -";
+    else if (key == L"Volume Mute") key = L"Mute";
+    else if (key == L"Media Previous") key = L"Media Prev";
+    else if (key == L"Media Next") key = L"Media Next";
+    else if (key == L"Play / Pause") key = L"Play/Pause";
+    else if (key == L"Browser Back") key = L"Browser Back";
+    else if (key == L"Browser Forward") key = L"Browser Next";
+    if (!result.empty()) result += L" + ";
+    return result + key;
 }
 
 bool ConfirmAction(HWND owner, const std::wstring& title, const std::wstring& detail,
@@ -1122,6 +1200,31 @@ HMONITOR GetPriorityMonitor(HWND applicationWindow) {
 }
 
 HWND GetCapturableWindowAtPoint(POINT screenPoint, HWND applicationWindow) {
+    // Ask Windows what is genuinely under the cursor before falling back to a
+    // rectangle walk. WindowFromPoint honours layered per-pixel alpha and
+    // click-through regions, so a mostly-transparent widget or a rounded window
+    // no longer answers for the empty space around it. The caller's own window is
+    // made click-through for the duration of the query, otherwise the picker's
+    // full-screen overlay would win every point on the desktop.
+    if (applicationWindow && IsWindow(applicationWindow)) {
+        const LONG_PTR extendedStyle = GetWindowLongPtrW(applicationWindow, GWL_EXSTYLE);
+        const bool alreadyClickThrough = (extendedStyle & WS_EX_TRANSPARENT) != 0;
+        if (!alreadyClickThrough) {
+            SetWindowLongPtrW(applicationWindow, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT);
+        }
+        HWND hit = WindowFromPoint(screenPoint);
+        if (!alreadyClickThrough) SetWindowLongPtrW(applicationWindow, GWL_EXSTYLE, extendedStyle);
+        HWND root = hit ? GetAncestor(hit, GA_ROOT) : nullptr;
+        if (root && IsUsableForegroundWindow(root, applicationWindow)) {
+            const RECT bounds = GetWindowCaptureBounds(root);
+            if (bounds.right > bounds.left && bounds.bottom > bounds.top &&
+                screenPoint.x >= bounds.left && screenPoint.x < bounds.right &&
+                screenPoint.y >= bounds.top && screenPoint.y < bounds.bottom) {
+                return root;
+            }
+        }
+    }
+
     for (HWND window = GetTopWindow(nullptr); window; window = GetWindow(window, GW_HWNDNEXT)) {
         HWND root = GetAncestor(window, GA_ROOT);
         if (root != window) continue;
@@ -1195,41 +1298,6 @@ RECT GetVirtualDesktopRect() {
     return rect;
 }
 
-std::vector<AudioWindowInfo> EnumerateAudioWindows(HWND applicationWindow) {
-    struct Context {
-        HWND excluded = nullptr;
-        std::vector<AudioWindowInfo> windows;
-    } context{applicationWindow, {}};
-    EnumWindows([](HWND window, LPARAM value) -> BOOL {
-        auto& state = *reinterpret_cast<Context*>(value);
-        if (!window || window == state.excluded || !IsWindowVisible(window) || GetAncestor(window, GA_ROOT) != window) return TRUE;
-        const LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-        if ((style & WS_EX_TOOLWINDOW) != 0) return TRUE;
-        wchar_t title[512]{};
-        const int titleLength = GetWindowTextW(window, title, static_cast<int>(std::size(title)));
-        if (titleLength <= 0) return TRUE;
-        DWORD processId = 0;
-        GetWindowThreadProcessId(window, &processId);
-        if (!processId || processId == GetCurrentProcessId()) return TRUE;
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-        if (!process) return TRUE;
-        wchar_t path[32768]{};
-        DWORD pathLength = static_cast<DWORD>(std::size(path));
-        const bool havePath = QueryFullProcessImageNameW(process, 0, path, &pathLength) != FALSE;
-        CloseHandle(process);
-        if (!havePath || !pathLength) return TRUE;
-        AudioWindowInfo info;
-        info.processId = processId;
-        info.window = window;
-        info.title.assign(title, static_cast<std::size_t>(titleLength));
-        info.executableName = std::filesystem::path(std::wstring(path, pathLength)).filename().wstring();
-        for (const auto& existing : state.windows) if (existing.processId == processId) return TRUE;
-        state.windows.push_back(std::move(info));
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&context));
-    return context.windows;
-}
-
 void AppendDiagnosticLog(const std::wstring& message) {
     static std::mutex logMutex;
     std::lock_guard lock(logMutex);
@@ -1257,107 +1325,75 @@ void AppendDiagnosticLog(const std::wstring& message) {
     CloseHandle(file);
 }
 
-bool CopyFrameToClipboard(HWND owner, const FrameBuffer& frame) {
-    if (frame.bgra.empty() || !frame.width || !frame.height || frame.stride < frame.width * 4) return false;
+ClipboardImage PrepareClipboardImage(const SaveJob& job) {
+    ClipboardImage image;
+    const auto inputRowBytes = static_cast<std::uint64_t>(job.width) * 4;
+    if (!job.width || !job.height || job.width > LONG_MAX || job.height > LONG_MAX ||
+        job.stride < inputRowBytes || static_cast<std::uint64_t>(job.stride) * job.height > job.bgra.size() ||
+        job.bgra.size() > UINT_MAX) return image;
 
-    const SIZE_T rowBytes = static_cast<SIZE_T>(frame.width) * 4;
-    const SIZE_T pixels = rowBytes * frame.height;
-
-    auto fillBottomUp = [&](BYTE* destination) {
-        for (UINT y = 0; y < frame.height; ++y) {
-            const BYTE* source = frame.bgra.data() + static_cast<SIZE_T>(frame.height - 1 - y) * frame.stride;
-            BYTE* row = destination + static_cast<SIZE_T>(y) * rowBytes;
-            std::memcpy(row, source, rowBytes);
-            for (SIZE_T x = 3; x < rowBytes; x += 4) row[x] = 255;
-        }
-    };
-
-    HGLOBAL dibV5 = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(BITMAPV5HEADER) + pixels);
-    HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(BITMAPINFOHEADER) + pixels);
-    if (!dibV5 || !dib) {
-        if (dibV5) GlobalFree(dibV5);
-        if (dib) GlobalFree(dib);
-        return false;
-    }
-
-    auto* v5Base = static_cast<BYTE*>(GlobalLock(dibV5));
-    auto* dibBase = static_cast<BYTE*>(GlobalLock(dib));
-    if (!v5Base || !dibBase) {
-        if (v5Base) GlobalUnlock(dibV5);
-        if (dibBase) GlobalUnlock(dib);
-        GlobalFree(dibV5);
-        GlobalFree(dib);
-        return false;
-    }
-
-    auto* v5 = reinterpret_cast<BITMAPV5HEADER*>(v5Base);
-    *v5 = {};
-    v5->bV5Size = sizeof(BITMAPV5HEADER);
-    v5->bV5Width = static_cast<LONG>(frame.width);
-    v5->bV5Height = static_cast<LONG>(frame.height); // positive = bottom-up, most compatible on clipboard
-    v5->bV5Planes = 1;
-    v5->bV5BitCount = 32;
-    v5->bV5Compression = BI_BITFIELDS;
-    v5->bV5SizeImage = static_cast<DWORD>(pixels);
-    v5->bV5RedMask = 0x00FF0000;
-    v5->bV5GreenMask = 0x0000FF00;
-    v5->bV5BlueMask = 0x000000FF;
-    v5->bV5AlphaMask = 0xFF000000;
-    v5->bV5CSType = LCS_sRGB;
-    v5->bV5Intent = LCS_GM_IMAGES;
-    fillBottomUp(v5Base + sizeof(BITMAPV5HEADER));
-
-    auto* header = reinterpret_cast<BITMAPINFOHEADER*>(dibBase);
-    *header = {};
-    header->biSize = sizeof(BITMAPINFOHEADER);
-    header->biWidth = static_cast<LONG>(frame.width);
-    header->biHeight = static_cast<LONG>(frame.height);
-    header->biPlanes = 1;
-    header->biBitCount = 32;
-    header->biCompression = BI_RGB;
-    header->biSizeImage = static_cast<DWORD>(pixels);
-    fillBottomUp(dibBase + sizeof(BITMAPINFOHEADER));
-    const BITMAPINFOHEADER bitmapHeader = *header;
-
-    GlobalUnlock(dibV5);
-    GlobalUnlock(dib);
-
-    BITMAPINFO bitmapInfo{};
-    bitmapInfo.bmiHeader = bitmapHeader;
-    void* bitmapBits = nullptr;
-    HDC screen = GetDC(nullptr);
-    HBITMAP bitmap = CreateDIBSection(screen, &bitmapInfo, DIB_RGB_COLORS, &bitmapBits, nullptr, 0);
-    ReleaseDC(nullptr, screen);
-    if (bitmap && bitmapBits) {
-        auto* locked = static_cast<BYTE*>(GlobalLock(dib));
-        if (locked) {
-            std::memcpy(bitmapBits, locked + sizeof(BITMAPINFOHEADER), pixels);
-            GlobalUnlock(dib);
+    const SIZE_T rowBytes = (static_cast<SIZE_T>(job.width) * 3 + 3) & ~SIZE_T{3};
+    const SIZE_T pixels = rowBytes * job.height;
+    image.dib.reset(GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(BITMAPINFOHEADER) + pixels));
+    if (image.dib) {
+        if (auto* base = static_cast<BYTE*>(GlobalLock(image.dib.get()))) {
+            auto& header = *reinterpret_cast<BITMAPINFOHEADER*>(base);
+            header.biSize = sizeof(header);
+            header.biWidth = static_cast<LONG>(job.width);
+            header.biHeight = static_cast<LONG>(job.height);
+            header.biPlanes = 1;
+            header.biBitCount = 24;
+            header.biCompression = BI_RGB;
+            header.biSizeImage = static_cast<DWORD>(pixels);
+            for (UINT y = 0; y < job.height; ++y) {
+                const BYTE* source = job.bgra.data() + static_cast<SIZE_T>(job.height - 1 - y) * job.stride;
+                BYTE* row = base + sizeof(header) + static_cast<SIZE_T>(y) * rowBytes;
+                for (UINT x = 0; x < job.width; ++x) {
+                    std::memcpy(row, source, 3);
+                    row += 3;
+                    source += 4;
+                }
+            }
+            GlobalUnlock(image.dib.get());
+        } else {
+            image.dib.reset();
         }
     }
+    image.png = EncodeClipboardPng(job);
+    return image;
+}
 
+bool PublishClipboardImage(HWND owner, ClipboardImage& image) {
+    if (!image.png && !image.dib) return false;
     bool opened = false;
     for (int attempt = 0; attempt < 8 && !opened; ++attempt) {
         opened = OpenClipboard(owner) != FALSE;
-        if (!opened) Sleep(4);
+        if (!opened && attempt < 7) Sleep(4);
     }
-    if (!opened) {
-        GlobalFree(dibV5);
-        GlobalFree(dib);
-        if (bitmap) DeleteObject(bitmap);
+    if (!opened) return false;
+    if (!EmptyClipboard()) {
+        CloseClipboard();
         return false;
     }
-
-    EmptyClipboard();
-    const bool v5Ok = SetClipboardData(CF_DIBV5, dibV5) != nullptr;
-    const bool dibOk = SetClipboardData(CF_DIB, dib) != nullptr;
-    const bool bitmapOk = bitmap && SetClipboardData(CF_BITMAP, bitmap) != nullptr;
+    const auto publish = [](UINT format, ClipboardMemory& memory) {
+        if (!format || !memory || !SetClipboardData(format, memory.get())) return false;
+        (void)memory.release();
+        return true;
+    };
+    const bool pngOk = publish(RegisterClipboardFormatW(L"PNG"), image.png);
+    const bool dibOk = publish(CF_DIB, image.dib);
+    if (pngOk || dibOk) {
+        ClipboardMemory history(GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD)));
+        if (history) {
+            if (auto* allowed = static_cast<DWORD*>(GlobalLock(history.get()))) {
+                *allowed = 1;
+                GlobalUnlock(history.get());
+                publish(RegisterClipboardFormatW(L"CanIncludeInClipboardHistory"), history);
+            }
+        }
+    }
     CloseClipboard();
-
-    if (!v5Ok) GlobalFree(dibV5);
-    if (!dibOk) GlobalFree(dib);
-    if (bitmap && !bitmapOk) DeleteObject(bitmap);
-    return v5Ok || dibOk || bitmapOk;
+    return pngOk || dibOk;
 }
 
 bool IsExclusiveFullscreenAppActive() {

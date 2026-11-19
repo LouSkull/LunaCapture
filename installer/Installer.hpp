@@ -11,7 +11,7 @@
 //
 // The installer is a standalone executable. It never links the app; it only
 // downloads a published release, places it, and registers the OS integration
-// points (shortcuts, autostart, .luna file association, uninstall entry).
+// points (shortcuts, autostart, and uninstall entry).
 // ---------------------------------------------------------------------------
 
 namespace installer {
@@ -22,7 +22,6 @@ inline constexpr wchar_t kExecutableName[] = L"LunaCapture.exe";
 // this name; anything else is only accepted as a fallback.
 inline constexpr wchar_t kPortableArchiveName[] = L"LunaCapture-portable.zip";
 inline constexpr wchar_t kUninstallKeyName[] = L"LunaCapture";
-inline constexpr wchar_t kLunaProgId[] = L"LunaCapture.LunaScript";
 // Logon task used when the user wants autostart *and* administrator rights; a
 // Startup-folder shortcut cannot do both.
 inline constexpr wchar_t kElevatedTaskName[] = L"Luna Capture (elevated autostart)";
@@ -39,23 +38,17 @@ struct InstallOptions {
     bool startMenuShortcut = true;
     bool startWithWindows = false;
     bool runAsAdmin = false;
-    bool associateLunaFiles = true;
 };
 
 // Result of probing the machine for everything Luna Capture needs at runtime.
 struct DependencyReport {
     bool windowsVersionOk = false;
-    bool mediaFoundationOk = false;
     bool direct3DOk = false;
-    // Media Foundation is genuinely absent on Windows "N" editions until the
-    // Media Feature Pack is installed — that is a real, fixable dependency
-    // rather than a decorative check.
-    std::wstring mediaFoundationHint;
     std::wstring direct3DHint;
     std::wstring windowsHint;
 
     bool AllSatisfied() const noexcept {
-        return windowsVersionOk && mediaFoundationOk && direct3DOk;
+        return windowsVersionOk && direct3DOk;
     }
     bool BlocksInstall() const noexcept { return !windowsVersionOk; }
 };
@@ -90,7 +83,7 @@ using ProgressCallback = std::function<void(int percent, const std::wstring& mes
 bool RunInstall(const InstallOptions& options, const ReleaseInfo& release,
                 const ProgressCallback& progress, std::wstring& error, std::wstring& warning);
 
-// Full uninstall. `keepUserData` preserves settings, plugins and captures.
+// Full uninstall. `keepUserData` preserves settings and captures.
 bool RunUninstall(bool keepUserData, const ProgressCallback& progress, std::wstring& error);
 
 // Where a previous install put itself, or empty when not installed.

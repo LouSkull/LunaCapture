@@ -98,12 +98,15 @@ copy /y "build\bin\LunaSetup.exe" "dist\LunaSetup.exe" >nul
 if errorlevel 1 goto :failed
 copy /y "installer\installer.ini" "dist\installer.ini" >nul
 if errorlevel 1 goto :failed
+rem Stamp the version badges BEFORE docs are copied, and stamp both copies. Only
+rem website\version.js used to be written, so the offline docs that actually ship
+rem inside the app kept displaying whatever version they were last written with.
+>"website\version.js" echo window.LUNA_VERSION="%APP_VERSION%";document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".app-version").forEach(function(el){el.textContent=window.LUNA_VERSION;});});
+>"docs\version.js" echo window.LUNA_VERSION="%APP_VERSION%";document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".app-version").forEach(function(el){el.textContent=window.LUNA_VERSION;});});
 if exist "dist\docs\examples" rmdir /s /q "dist\docs\examples"
 cmake -E copy_directory "docs" "dist\docs"
 if errorlevel 1 goto :failed
 >"dist\version.txt" echo %APP_VERSION%
-rem Keep the website badges in sync with the VERSION file.
->"website\version.js" echo window.LUNA_VERSION="%APP_VERSION%";document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".app-version").forEach(function(el){el.textContent=window.LUNA_VERSION;});});
 
 echo [5/5] Packaging LunaCapture-portable.zip...
 rem This is the exact asset name LunaSetup.exe looks for on the release page.

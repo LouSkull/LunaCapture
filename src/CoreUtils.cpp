@@ -358,38 +358,3 @@ double QpcMilliseconds(std::int64_t start, std::int64_t end, std::int64_t freque
     }
     return static_cast<double>(end - start) * 1000.0 / static_cast<double>(frequency);
 }
-
-int NormalizeAacBitrateKbps(int requestedKbps) {
-    // Microsoft's inbox AAC encoder accepts only these stereo rates. Keeping this
-    // normalization in one place prevents an unsupported custom value from silently
-    // disabling every audio source in the recording.
-    constexpr int supported[] = {96, 128, 160, 192};
-    int closest = supported[0];
-    for (const int candidate : supported) {
-        if (std::abs(requestedKbps - candidate) < std::abs(requestedKbps - closest)) closest = candidate;
-    }
-    return closest;
-}
-bool PluginFeedbackCircuitBreaker::TryAcquire(std::uint64_t nowMilliseconds) noexcept {
-    if (tripped_) return false;
-    std::size_t retained = 0;
-    for (std::size_t index = 0; index < count_; ++index) {
-        const std::uint64_t timestamp = timestamps_[index];
-        if (nowMilliseconds < timestamp || nowMilliseconds - timestamp < kWindowMilliseconds) {
-            timestamps_[retained++] = timestamp;
-        }
-    }
-    count_ = retained;
-    if (count_ >= kBurstLimit) {
-        tripped_ = true;
-        return false;
-    }
-    timestamps_[count_++] = nowMilliseconds;
-    return true;
-}
-
-void PluginFeedbackCircuitBreaker::Reset() noexcept {
-    timestamps_.fill(0);
-    count_ = 0;
-    tripped_ = false;
-}

@@ -1,6 +1,6 @@
 /* ============================================================================
    Luna Capture — shared site design system.
-   Every page (index.html, sdk.html, license.html, docs/plugin-sdk.html) links
+   Every published page (index.html and license.html) links
    this single stylesheet; page files carry no page-specific <style> blocks.
    ========================================================================== */
 
@@ -235,17 +235,14 @@ pre::-webkit-scrollbar-thumb{background:#1e2634;border-radius:9px}
 .regionmock .rtools span.on{background:#3e6ed0;color:#fff}
 .regionmock .rtools span.ok{color:#7fe3bd}
 
-/* replay / recording mockup */
-.replaymock{height:186px;border-radius:12px 12px 0 0;border:1px solid #262e3d;border-bottom:0;background:#0e1116;padding:14px 16px;overflow:hidden}
-.replaymock .r-tile{position:relative;height:96px;border-radius:10px;background:linear-gradient(135deg,#233046,#182238 60%,#1b2c45);border:1px solid #2b3546;overflow:hidden}
-.replaymock .r-tile .rec{position:absolute;left:10px;top:9px;display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;background:#0d1017cc;color:#ff8f9c;font-size:9px;font-weight:700}
-.replaymock .r-tile .rec i{width:6px;height:6px;border-radius:50%;background:#f3707e;animation:blink 1.2s steps(2,start) infinite}
-@keyframes blink{to{visibility:hidden}}
-.replaymock .r-tile .stamp{position:absolute;right:10px;bottom:8px;padding:2px 7px;border-radius:6px;background:#0d1017cc;color:#9cc3ff;font-size:9px}
-.replaymock .r-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}
-.replaymock .r-stat{padding:7px 9px;border:1px solid #262d39;border-radius:9px;background:#12151d}
-.replaymock .r-stat b{display:block;color:#e6eaf2;font-size:10.5px}
-.replaymock .r-stat span{color:#67718a;font-size:8.4px}
+/* image-only photo workspace mockup */
+.photomock{height:186px;border-radius:12px 12px 0 0;border:1px solid #262e3d;border-bottom:0;background:#0e1116;padding:14px 16px;overflow:hidden}
+.photomock .photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;height:112px}
+.photomock .photo-grid span{border:1px solid #2b3546;border-radius:8px;background:linear-gradient(135deg,#31415e,#1a273b 62%,#24405c)}
+.photomock .photo-grid span:nth-child(2n){background:linear-gradient(145deg,#2a3d36,#1c2e33 58%,#263b52)}
+.photomock .photo-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px 0}
+.photomock .photo-status b{color:#e6eaf2;font-size:11px}
+.photomock .photo-status span{color:#67718a;font-size:8.8px;text-align:right}
 
 /* responsive tweaks shared by every page */
 @media(max-width:920px){

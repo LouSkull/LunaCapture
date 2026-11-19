@@ -13,19 +13,20 @@ struct IntegerPreset {
     std::wstring label;
 };
 
-std::wstring GetLocalAppDataDirectory();
-std::wstring GetDefaultScreenshotDirectory();
-std::wstring GetDefaultRecordingDirectory();
+std::wstring GetLocalAppDataDirectory(bool createKnownFolder = true);
+std::wstring GetDefaultScreenshotDirectory(bool createKnownFolder = true);
 std::wstring GetSoundLibraryDirectory();
 std::wstring GetExecutablePath();
 bool EnsureDirectoryExists(const std::wstring& path);
 // Pins an output folder to Explorer's generic template so it sorts by name.
 // Capture filenames lead with a zero-padded timestamp, so name order is date
-// order — unlike the inherited Pictures/Videos templates, which sort by
-// "Date taken" metadata that screen captures never carry.
+// order instead of metadata that screen captures never carry.
 void ApplyChronologicalFolderView(const std::wstring& directory);
 void OpenFolderInExplorer(const std::wstring& path);
 std::wstring FormatHotkey(UINT modifiers, UINT vk);
+// A compact, predictable label for buttons and narrow bind chips. The full
+// name remains available through FormatHotkey for accessibility and menus.
+std::wstring FormatHotkeyCompact(UINT modifiers, UINT vk);
 // Themed replacements for MessageBoxW. The stock message box ignores the app's
 // dark chrome and theme entirely, so every confirmation and notice goes through
 // these instead.
@@ -58,7 +59,7 @@ HWND GetCapturableWindowAtPoint(POINT screenPoint, HWND applicationWindow);
 RECT GetWindowCaptureBounds(HWND window);
 std::wstring GetWindowCaptureName(HWND window);
 RECT GetVirtualDesktopRect();
-std::vector<AudioWindowInfo> EnumerateAudioWindows(HWND applicationWindow);
 void AppendDiagnosticLog(const std::wstring& message);
-bool CopyFrameToClipboard(HWND owner, const FrameBuffer& frame);
+ClipboardImage PrepareClipboardImage(const SaveJob& job);
+bool PublishClipboardImage(HWND owner, ClipboardImage& image);
 bool IsExclusiveFullscreenAppActive();

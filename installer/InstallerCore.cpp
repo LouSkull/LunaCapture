@@ -3,7 +3,6 @@
 #include <ShlObj.h>
 #include <ShObjIdl.h>
 #include <d3d11.h>
-#include <mfapi.h>
 // security.h refuses to compile without one of these; we only want GetUserNameExW.
 #define SECURITY_WIN32
 #include <security.h>
@@ -597,20 +596,7 @@ DependencyReport CheckDependencies() {
         report.windowsHint = L"Luna Capture needs Windows 10 version 1903 (build 18362) or newer.";
     }
 
-    // Media Foundation is genuinely missing on Windows N/KN editions until the
-    // Media Feature Pack is installed — recording and playback would fail.
-    if (HMODULE mfplat = LoadLibraryW(L"mfplat.dll")) {
-        report.mediaFoundationOk = SUCCEEDED(MFStartup(MF_VERSION));
-        if (report.mediaFoundationOk) MFShutdown();
-        FreeLibrary(mfplat);
-    }
-    if (!report.mediaFoundationOk) {
-        report.mediaFoundationHint =
-            L"Media Foundation is unavailable. This is normal on Windows \"N\" editions — install the "
-            L"Media Feature Pack from Windows Update, then run this installer again.";
-    }
-
-    // Desktop Duplication and the encoder both need a working D3D11 device.
+    // Desktop Duplication needs a working D3D11 device.
     ComPtr<ID3D11Device> device;
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1};
     D3D_FEATURE_LEVEL created{};
@@ -701,7 +687,7 @@ bool RunInstall(const InstallOptions& options, const ReleaseInfo& release,
 
     // Writability probe before spending a download on a folder we cannot use.
     {
-        const std::filesystem::path probe = installDir / L".luna-write-test";
+        const std::filesystem::path probe = installDir / L".lunacapture-write-test";
         std::ofstream test(probe, std::ios::binary);
         if (!test) {
             error = L"That folder is not writable by your account. Pick a different location.";
@@ -830,20 +816,6 @@ bool RunInstall(const InstallOptions& options, const ReleaseInfo& release,
     report(88, L"Applying options…");
     SetRunAsAdminFlag(exePath, options.runAsAdmin);
 
-    if (options.associateLunaFiles) {
-        report(91, L"Registering .luna files…");
-        const std::wstring classes = L"Software\\Classes\\";
-        WriteStringValue(HKEY_CURRENT_USER, classes + L".luna", nullptr, kLunaProgId);
-        WriteStringValue(HKEY_CURRENT_USER, classes + kLunaProgId, nullptr, L"LunaScript plugin");
-        WriteStringValue(HKEY_CURRENT_USER, classes + kLunaProgId + L"\\DefaultIcon", nullptr, exePath + L",0");
-        WriteStringValue(HKEY_CURRENT_USER, classes + kLunaProgId + L"\\shell\\open\\command", nullptr,
-                         L"\"" + exePath + L"\" \"%1\"");
-        // Make the verb read naturally in Explorer's context menu.
-        WriteStringValue(HKEY_CURRENT_USER, classes + kLunaProgId + L"\\shell\\open", nullptr,
-                         L"Install into Luna Capture");
-        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-    }
-
     report(95, L"Registering uninstaller…");
     {
         // The installer copies itself next to the app so uninstall keeps working
@@ -931,15 +903,7 @@ bool RunUninstall(bool keepUserData, const ProgressCallback& progress, std::wstr
         }
     }
 
-    report(40, L"Removing file association…");
     SetRunAsAdminFlag(exePath, false);
-    const std::wstring classes = L"Software\\Classes\\";
-    RegDeleteTreeW(HKEY_CURRENT_USER, (classes + kLunaProgId).c_str());
-    // Only drop the .luna default if it still points at us.
-    if (ReadStringValue(HKEY_CURRENT_USER, classes + L".luna", nullptr) == kLunaProgId) {
-        RegDeleteTreeW(HKEY_CURRENT_USER, (classes + L".luna").c_str());
-    }
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 
     report(60, L"Deleting program files…");
     // Everything except the running uninstaller itself.
@@ -955,7 +919,7 @@ bool RunUninstall(bool keepUserData, const ProgressCallback& progress, std::wstr
     }
 
     if (!keepUserData) {
-        report(80, L"Removing settings and plugins…");
+        report(80, L"Removing settings…");
         const std::wstring localAppData = KnownFolder(FOLDERID_LocalAppData);
         if (!localAppData.empty()) {
             std::filesystem::remove_all(std::filesystem::path(localAppData) / L"Luna Capture", ec);

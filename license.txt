@@ -8,7 +8,7 @@ Project: Luna Capture
 Official Repository: https://github.com/LouSkull/LunaCapture
 Official Website: https://github.com/LouSkull/LunaCapture/releases
 
-This license applies to the Luna Capture software, its source code, compiled binaries, documentation, user interface, assets, plugins, themes, configuration files, and any other materials distributed as part of the project, collectively referred to as the “Software.”
+This license applies to the Luna Capture software, its source code, compiled binaries, documentation, user interface, assets, themes, configuration files, and any other materials distributed as part of the project, collectively referred to as the “Software.”
 
 By downloading, accessing, using, compiling, copying, or modifying the Software, you agree to the terms of this license.
 
@@ -32,7 +32,7 @@ c. Compile the source code for your own use.
 
 d. Modify the source code for personal or internal use.
 
-e. Create private builds, themes, translations, plugins, configurations, and other modifications.
+e. Create private builds, themes, translations, configurations, and other modifications.
 
 f. Use the Software for personal purposes.
 
@@ -52,7 +52,7 @@ a. Using Luna Capture in a business or professional environment.
 
 b. Using Luna Capture while performing paid work.
 
-c. Using Luna Capture to create screenshots, recordings, images, videos, presentations, tutorials, documentation, or other content.
+c. Using Luna Capture to create screenshots, images, presentations, tutorials, documentation, or other content.
 
 d. Monetizing content created with Luna Capture.
 
@@ -88,7 +88,7 @@ f. Installers containing Luna Capture.
 
 g. Forks or derivative versions of Luna Capture.
 
-h. Plugins, themes, translations, patches, or modifications containing protected portions of Luna Capture.
+h. Themes, translations, patches, or modifications containing protected portions of Luna Capture.
 
 i. Access keys, licenses, accounts, activation codes, download links, or subscriptions whose primary purpose is to provide access to Luna Capture.
 
@@ -114,7 +114,7 @@ c. Creating private themes.
 
 d. Creating private translations.
 
-e. Creating private plugins.
+e. Creating private themes or translations.
 
 f. Changing hotkeys or capture behavior.
 
@@ -154,7 +154,7 @@ h. Rebranded versions.
 
 i. Custom builds.
 
-j. Modified plugins or modules containing Luna Capture source code.
+j. Modified modules containing Luna Capture source code.
 
 k. Modified themes or assets containing protected Luna Capture materials.
 
@@ -300,7 +300,7 @@ For example, you may use Luna Capture while performing paid video editing, techn
 
 12. NO BUNDLING
 
-You may not bundle Luna Capture with another application, installer, mod pack, software collection, operating system image, game package, driver package, plugin collection, or commercial product without written permission from ggrolton123.
+You may not bundle Luna Capture with another application, installer, mod pack, software collection, operating system image, game package, driver package, or commercial product without written permission from ggrolton123.
 
 This restriction applies even when the bundle is distributed for free.
 
@@ -374,9 +374,9 @@ f. A modified version is an official update, premium edition, successor, or repl
 
 You may truthfully state that you use Luna Capture, provided that the statement does not imply sponsorship or endorsement.
 
-16. PLUGINS, THEMES, AND EXTENSIONS
+16. THEMES, TRANSLATIONS, AND INTEGRATIONS
 
-You may create plugins, themes, translations, extensions, scripts, or integrations for private use.
+You may create themes, translations, scripts, or integrations for private use.
 
 You may distribute a separately created extension only if all of the following are true:
 
@@ -468,7 +468,7 @@ Where a third-party license grants broader rights to a specific third-party comp
 
 21. USER-CREATED CONTENT
 
-You retain rights to screenshots, videos, images, recordings, documents, and other original content that you create using Luna Capture, subject to any rights held by third parties in the captured material.
+You retain rights to screenshots, images, documents, and other original content that you create using Luna Capture, subject to any rights held by third parties in the captured material.
 
 ggrolton123 does not claim ownership of your original user-created content merely because Luna Capture was used to create or capture it.
 

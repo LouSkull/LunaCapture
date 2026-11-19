@@ -1,4 +1,5 @@
 #include "RegionEditor.hpp"
+#include "CapturePrivacy.hpp"
 #include "CoreUtils.hpp"
 #include "UiGfx.hpp"
 #include "UiIcons.hpp"
@@ -82,29 +83,6 @@ void DrawTextLeft(HDC dc, const wchar_t* text, const RECT& rect, COLORREF color,
     SetTextColor(dc, ui::ResolveThemeColor(color));
     DrawTextW(dc, translated.c_str(), -1, const_cast<RECT*>(&rect), DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(dc, oldFont);
-}
-
-void PaintEditorChromeBackdrop(HDC dc, const RECT& rect, int radius) {
-    if (!dc || IsRectEmpty(&rect)) return;
-    const int saved = SaveDC(dc);
-    if (!saved) return;
-
-    const int rectWidth = static_cast<int>(rect.right - rect.left);
-    const int rectHeight = static_cast<int>(rect.bottom - rect.top);
-    const int resolvedRadius = (std::min)(ui::ResolveThemeRadius(radius),
-                                          (std::min)(rectWidth, rectHeight) / 2);
-    HRGN clip = resolvedRadius > 0
-        ? CreateRoundRectRgn(rect.left, rect.top, rect.right + 1, rect.bottom + 1,
-                             resolvedRadius * 2, resolvedRadius * 2)
-        : CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
-    if (clip) {
-        const int clipResult = ExtSelectClipRgn(dc, clip, RGN_AND);
-        DeleteObject(clip);
-        if (clipResult != ERROR) {
-            ui::PaintThemeBackdrop(dc, rect, ui::ThemeSurface::EditorChrome, GetTickCount64());
-        }
-    }
-    RestoreDC(dc, saved);
 }
 
 void RgbToHsv(COLORREF c, float& h, float& s, float& v) {
@@ -240,15 +218,22 @@ bool RegionEditor::Show(std::shared_ptr<FrameBuffer> frame, SessionMode mode, co
                                 static_cast<int>(frame_->width), static_cast<int>(frame_->height),
                                 nullptr, nullptr, instance_, this);
         if (!hwnd_) return false;
-        // The editor displays a frozen desktop. Excluding this top-level window prevents a later
-        // DXGI/GDI snapshot from recursively capturing that frozen frame and duplicating it.
-        if (!SetWindowDisplayAffinity(hwnd_, WDA_EXCLUDEFROMCAPTURE)) {
-            AppendDiagnosticLog(L"Region editor capture exclusion unavailable: " + std::to_wstring(GetLastError()));
-        }
+    }
+    // Keep the frozen editor visible to recorders unless privacy was requested.
+    std::wstring privacyError;
+    if ((settings_.privateCapture && !capturePrivacy::Supported()) ||
+        !capturePrivacy::Apply(hwnd_, settings_.privateCapture, L"Region editor", privacyError)) {
+        AppendDiagnosticLog(privacyError.empty() ? L"Region editor: capture exclusion unsupported." : privacyError);
+        frame_.reset();
+        ReleaseFrameSurface();
+        return false;
     }
     SetWindowPos(hwnd_, HWND_TOPMOST, frame_->virtualRect.left, frame_->virtualRect.top,
-                 static_cast<int>(frame_->width), static_cast<int>(frame_->height), SWP_SHOWWINDOW);
+                 static_cast<int>(frame_->width), static_cast<int>(frame_->height), SWP_NOACTIVATE);
+    RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
     ShowWindow(hwnd_, SW_SHOW);
+    UpdateWindow(hwnd_);
+    DwmFlush();
     SetForegroundWindow(hwnd_);
     SetFocus(hwnd_);
     visible_ = true;
@@ -631,7 +616,7 @@ void RegionEditor::ExecuteToolbar(ToolbarAction action) {
         case ToolbarAction::Redo: Redo(); break;
         case ToolbarAction::Copy: Complete(RegionResultAction::Copy); break;
         case ToolbarAction::Save:
-            if (mode_ == SessionMode::WindowPicker) {
+            if (mode_ == SessionMode::WindowPicker || settings_.privateCapture) {
                 Complete(RegionResultAction::Save);
             } else {
                 std::wstring selectedPath;
@@ -780,7 +765,6 @@ FrameBuffer RegionEditor::RenderCrop() const {
 
 void RegionEditor::DrawToolbar(HDC dc, const RECT&) {
     ui::FillRoundRect(dc, toolbarRect_, 14, RGB(20, 23, 29), 246);
-    PaintEditorChromeBackdrop(dc, toolbarRect_, 14);
     ui::StrokeRoundRect(dc, toolbarRect_, 14, RGB(66, 72, 86));
 
     const auto items = ToolbarItems();
@@ -901,7 +885,6 @@ void RegionEditor::DrawPalette(HDC dc) {
     InflateRect(&shadow, 3, 3);
     ui::FillRoundRect(dc, shadow, 18, RGB(0, 0, 0), 60);
     ui::FillRoundRect(dc, paletteRect_, 16, RGB(24, 27, 34));
-    PaintEditorChromeBackdrop(dc, paletteRect_, 16);
     ui::StrokeRoundRect(dc, paletteRect_, 16, RGB(70, 76, 90));
 
     DrawTextLeft(dc, L"Color", RECT{paletteRect_.left + 14, paletteRect_.top + 10, paletteRect_.left + 120, paletteRect_.top + 32},
@@ -1134,8 +1117,17 @@ void RegionEditor::Paint() {
     RECT client{};
     GetClientRect(hwnd_, &client);
 
-    // Compose the whole frame off-screen, then present it with one BitBlt.
-    BitBlt(renderDc_, 0, 0, client.right, client.bottom, dimmedDc_, 0, 0, SRCCOPY);
+    RECT present = paint.rcPaint;
+    if (IsRectEmpty(&present)) {
+        EndPaint(hwnd_, &paint);
+        return;
+    }
+    // Toolbar and palette invalidations only touch their part of the desktop-sized buffer.
+    const int renderState = SaveDC(renderDc_);
+    if (renderState) IntersectClipRect(renderDc_, present.left, present.top, present.right, present.bottom);
+    const int width = present.right - present.left;
+    const int height = present.bottom - present.top;
+    BitBlt(renderDc_, present.left, present.top, width, height, dimmedDc_, present.left, present.top, SRCCOPY);
 
     if (mode_ == SessionMode::WindowPicker) {
         if (hoveredWindowRect_.right > hoveredWindowRect_.left && hoveredWindowRect_.bottom > hoveredWindowRect_.top) {
@@ -1149,14 +1141,12 @@ void RegionEditor::Paint() {
             RECT sizeRect{selection.left, selection.bottom + 8, selection.left + 132, selection.bottom + 36};
             if (sizeRect.bottom > client.bottom) { sizeRect.top = selection.top - 36; sizeRect.bottom = selection.top - 8; }
             ui::FillRoundRect(renderDc_, sizeRect, 9, RGB(20, 23, 29));
-            PaintEditorChromeBackdrop(renderDc_, sizeRect, 9);
             ui::StrokeRoundRect(renderDc_, sizeRect, 9, RGB(64, 70, 84));
             DrawTextCentered(renderDc_, sizeText, sizeRect, RGB(224, 229, 238), sizeFont_);
         }
         if (windowChoicePending_) {
             const RECT panel = WindowChoicePanel();
             ui::FillRoundRect(renderDc_, panel, 18, RGB(18, 21, 27));
-            PaintEditorChromeBackdrop(renderDc_, panel, 18);
             ui::StrokeRoundRect(renderDc_, panel, 18, RGB(66, 78, 96), 1);
             DrawTextCentered(renderDc_, L"What should Luna Capture do with this window?", RECT{panel.left + 16, panel.top + 10, panel.right - 16, panel.top + 48},
                              RGB(238, 242, 249), hintFont_);
@@ -1167,17 +1157,17 @@ void RegionEditor::Paint() {
                 ui::FillRoundRect(renderDc_, button, 11, colors[i]);
                 DrawTextCentered(renderDc_, labels[i], button, RGB(250, 252, 255), sizeFont_);
             }
-        } else {
+        } else if (settings_.showRegionGuide) {
             const RECT host = PrimaryMonitorClientRect();
-            RECT message{host.left, (host.top + host.bottom) / 2 - 36, host.right, (host.top + host.bottom) / 2 + 36};
+            RECT message{host.left, (host.top + host.bottom) / 2 - 30, host.right, (host.top + host.bottom) / 2 + 38};
             DrawTextCentered(renderDc_, L"Hover a window and click to capture   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
         }
     } else if (HasSelection()) {
         const RECT selection = NormalizedSelection();
         BitBlt(renderDc_, selection.left, selection.top, selection.right - selection.left,
                selection.bottom - selection.top, frameDc_, selection.left, selection.top, SRCCOPY);
-        HRGN clip = CreateRectRgn(selection.left, selection.top, selection.right, selection.bottom);
-        SelectClipRgn(renderDc_, clip);
+        const int selectionState = SaveDC(renderDc_);
+        if (selectionState) IntersectClipRect(renderDc_, selection.left, selection.top, selection.right, selection.bottom);
         DrawAnnotations(renderDc_, POINT{0, 0});
         // Outline whatever the Move tool is about to pick up, so it is obvious
         // that a drawing can be dragged on its own rather than with the region.
@@ -1200,8 +1190,7 @@ void RegionEditor::Paint() {
             InflateRect(&bounds, 7, 7);
             ui::StrokeRoundRect(renderDc_, bounds, 5, RGB(150, 205, 255), 1, 190);
         }
-        SelectClipRgn(renderDc_, nullptr);
-        DeleteObject(clip);
+        if (selectionState) RestoreDC(renderDc_, selectionState);
 
         ui::StrokeRoundRect(renderDc_, selection, 2, RGB(112, 181, 255), 2);
         if (tool_ == Tool::Move) DrawSelectionGrips(renderDc_, selection);
@@ -1211,25 +1200,22 @@ void RegionEditor::Paint() {
         RECT sizeRect{selection.left, selection.bottom + 8, selection.left + 120, selection.bottom + 36};
         if (sizeRect.bottom > client.bottom) { sizeRect.top = selection.top - 36; sizeRect.bottom = selection.top - 8; }
         ui::FillRoundRect(renderDc_, sizeRect, 9, RGB(20, 23, 29));
-        PaintEditorChromeBackdrop(renderDc_, sizeRect, 9);
         ui::StrokeRoundRect(renderDc_, sizeRect, 9, RGB(64, 70, 84));
         DrawTextCentered(renderDc_, sizeText, sizeRect, RGB(224, 229, 238), sizeFont_);
         UpdateToolbarRect();
         DrawToolbar(renderDc_, selection);
         if (paletteOpen_) DrawPalette(renderDc_);
-    } else {
+    } else if (settings_.showRegionGuide) {
         // Selection itself still works across every monitor - only the caption is
         // pinned to the primary one, because centring it on the virtual desktop
         // dropped it onto the seam between two screens.
         const RECT host = PrimaryMonitorClientRect();
-        RECT message{host.left, (host.top + host.bottom) / 2 - 36, host.right, (host.top + host.bottom) / 2 + 36};
+        RECT message{host.left, (host.top + host.bottom) / 2 - 30, host.right, (host.top + host.bottom) / 2 + 38};
         DrawTextCentered(renderDc_, L"Drag to select   •   Ctrl+A full screen   •   Esc to cancel", message, RGB(245, 247, 252), hintFont_);
     }
 
-    RECT present = paint.rcPaint;
-    if (IsRectEmpty(&present)) present = client;
-    BitBlt(target, present.left, present.top, present.right - present.left, present.bottom - present.top,
-           renderDc_, present.left, present.top, SRCCOPY);
+    if (renderState) RestoreDC(renderDc_, renderState);
+    BitBlt(target, present.left, present.top, width, height, renderDc_, present.left, present.top, SRCCOPY);
     EndPaint(hwnd_, &paint);
 }
 

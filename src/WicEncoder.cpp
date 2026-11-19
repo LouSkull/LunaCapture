@@ -32,18 +32,6 @@ bool Failed(HRESULT hr, const wchar_t* stage, std::wstring& error) {
 }  // namespace
 
 
-void PrewarmWic() {
-    ComPtr<IWICImagingFactory> factory;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-    if (FAILED(hr)) {
-        CoCreateInstance(CLSID_WICImagingFactory1, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-    }
-    if (factory.Get()) {
-        ComPtr<IWICBitmapEncoder> encoder;
-        factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-    }
-}
-
 bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error) {
     if (job.bgra.empty() || job.width == 0 || job.height == 0 || job.stride == 0) {
         error = L"Empty frame";
@@ -73,11 +61,9 @@ bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error) {
     ComPtr<IWICBitmapSource> finalSource;
     hr = source.As(&finalSource);
     if (Failed(hr, L"IWICBitmapSource", error)) return false;
-    // Screenshots are ALWAYS saved at the exact captured resolution - no resampling ever touches a
-    // still image. Any scaling (down OR up) reinterpolates real pixels into a softer image with no
-    // added detail, which is precisely what made saved photos look blurry. Native pixels are, by
-    // definition, the maximum possible quality; there is nothing to gain by resizing a screenshot,
-    // so job.outputWidth/outputHeight are deliberately ignored here (they still govern video).
+    // Screenshots are always saved at the exact captured resolution. Resampling a
+    // still image softens real pixels without adding detail, so the legacy output
+    // size fields are deliberately ignored by the screenshot-only encoder.
     const UINT outputWidth = job.width;
     const UINT outputHeight = job.height;
 
@@ -141,4 +127,34 @@ bool EncodeScreenshotWic(const SaveJob& job, std::wstring& error) {
     hr = encoder->Commit();
     if (Failed(hr, L"Encoder::Commit", error)) return false;
     return true;
+}
+
+ClipboardMemory EncodeClipboardPng(const SaveJob& job) {
+    ClipboardMemory png;
+    ComPtr<IStream> stream;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, FALSE, &stream))) return {};
+    HGLOBAL data = nullptr;
+    if (FAILED(GetHGlobalFromStream(stream.Get(), &data))) return {};
+    png.reset(data);
+
+    ComPtr<IWICImagingFactory> factory;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    ComPtr<IWICBitmap> source;
+    WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->CreateBitmapFromMemory(job.width, job.height, GUID_WICPixelFormat32bppBGR, job.stride,
+                                              static_cast<UINT>(job.bgra.size()), const_cast<BYTE*>(job.bgra.data()), &source)) ||
+        FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) ||
+        FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
+        FAILED(encoder->CreateNewFrame(&frame, nullptr)) ||
+        FAILED(frame->Initialize(nullptr)) ||
+        FAILED(frame->SetSize(job.width, job.height)) ||
+        FAILED(frame->SetPixelFormat(&format)) ||
+        FAILED(frame->WriteSource(source.Get(), nullptr)) ||
+        FAILED(frame->Commit()) ||
+        FAILED(encoder->Commit())) {
+        return {};
+    }
+    return png;
 }

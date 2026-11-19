@@ -5,7 +5,6 @@
 #include "WinUtil.hpp"
 
 #include <Windows.h>
-#include <avrt.h>
 #include <dwmapi.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
@@ -114,13 +113,11 @@ bool CropFrameToDesktopRect(FrameBuffer& frame, const RECT& cropRect, std::wstri
 CaptureEngine::CaptureEngine(HWND notifyWindow) : notifyWindow_(notifyWindow) {
     stopEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     wakeEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    pausedEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     QueryPerformanceFrequency(&qpcFrequency_);
 }
 
 CaptureEngine::~CaptureEngine() {
     Stop();
-    if (pausedEvent_) CloseHandle(pausedEvent_);
     if (wakeEvent_) CloseHandle(wakeEvent_);
     if (stopEvent_) CloseHandle(stopEvent_);
 }
@@ -129,17 +126,17 @@ std::vector<OutputInfo> CaptureEngine::EnumerateOutputs() { return EnumerateOutp
 
 bool CaptureEngine::Start(const AppSettings& settings) {
     if (running_.exchange(true)) return true;
+    ready_.store(false, std::memory_order_release);
     displayChangePending_.store(false, std::memory_order_release);
-    pausedForRecording_.store(false, std::memory_order_release);
-    previewInFlight_.store(false, std::memory_order_release);
+    overlayInvalidationPending_.store(false, std::memory_order_release);
+    acquireAttempts_.store(0, std::memory_order_relaxed);
+    frameCopies_.store(0, std::memory_order_relaxed);
     ResetEvent(stopEvent_);
-    ResetEvent(pausedEvent_);
+    ResetEvent(wakeEvent_);
     {
         std::lock_guard lock(stateMutex_);
         activeSettings_ = settings;
         requests_.clear();
-        previewPending_ = false;
-        previewMonitor_ = nullptr;
     }
     {
         std::lock_guard lock(saveMutex_);
@@ -153,7 +150,6 @@ bool CaptureEngine::Start(const AppSettings& settings) {
 
 void CaptureEngine::Stop() {
     if (!running_.exchange(false)) return;
-    pausedForRecording_.store(false, std::memory_order_release);
     ready_.store(false, std::memory_order_release);
     SetEvent(stopEvent_);
     SetEvent(wakeEvent_);
@@ -165,28 +161,6 @@ void CaptureEngine::Stop() {
     saveCv_.notify_all();
     if (saveThread_.joinable()) saveThread_.join();
     ResetDuplicators();
-    previewInFlight_.store(false, std::memory_order_release);
-    {
-        std::lock_guard lock(previewPoolMutex_);
-        recycledPreview_.reset();
-    }
-}
-
-bool CaptureEngine::PauseForRecording() {
-    if (!running_.load(std::memory_order_acquire)) return false;
-    pausedForRecording_.store(true, std::memory_order_release);
-    ResetEvent(pausedEvent_);
-    previewInFlight_.store(false, std::memory_order_release);
-    SetEvent(wakeEvent_);
-    return WaitForSingleObject(pausedEvent_, 5000) == WAIT_OBJECT_0;
-}
-
-void CaptureEngine::ResumeAfterRecording(const AppSettings& settings) {
-    if (!running_.load(std::memory_order_acquire)) return;
-    UpdateSettings(settings);
-    pausedForRecording_.store(false, std::memory_order_release);
-    ResetEvent(pausedEvent_);
-    SetEvent(wakeEvent_);
 }
 
 void CaptureEngine::UpdateSettings(const AppSettings& settings) {
@@ -208,7 +182,7 @@ void CaptureEngine::InvalidateOverlayFrames() {
 
 bool CaptureEngine::RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, HWND targetWindow,
                                    const std::wstring& filenamePrefix, const AppSettings& settings) {
-    if (!running_.load() || pausedForRecording_.load(std::memory_order_acquire)) return false;
+    if (!running_.load()) return false;
     CaptureRequest request;
     request.settings = settings;
     request.mode = mode;
@@ -226,53 +200,17 @@ bool CaptureEngine::RequestCapture(CaptureMode mode, HMONITOR preferredMonitor, 
     return true;
 }
 
-bool CaptureEngine::RequestPreview(HMONITOR preferredMonitor) {
-    if (!running_.load(std::memory_order_acquire) || !ready_.load(std::memory_order_acquire) ||
-        pausedForRecording_.load(std::memory_order_acquire) ||
-        !previewConsumerActive_.load(std::memory_order_acquire)) return false;
-    if (previewInFlight_.exchange(true, std::memory_order_acq_rel)) return false;
-    {
-        std::lock_guard lock(stateMutex_);
-        if (previewPending_) {
-            previewInFlight_.store(false, std::memory_order_release);
-            return false;
-        }
-        previewMonitor_ = preferredMonitor;
-        previewPending_ = true;
-    }
-    SetEvent(wakeEvent_);
-    return true;
-}
-
-void CaptureEngine::SetPreviewConsumerActive(bool active) {
-    if (previewConsumerActive_.exchange(active, std::memory_order_acq_rel) == active) return;
-    if (!active) {
-        std::lock_guard lock(previewPoolMutex_);
-        recycledPreview_.reset();
-    }
-}
-
-std::unique_ptr<PreviewFrame> CaptureEngine::TakePreviewFrame() {
-    std::lock_guard lock(previewPoolMutex_);
-    if (recycledPreview_) return std::move(recycledPreview_);
-    return std::make_unique<PreviewFrame>();
-}
-
-void CaptureEngine::RecyclePreviewFrame(std::unique_ptr<PreviewFrame> frame) {
-    if (!frame || frame->liveRecording || !running_.load(std::memory_order_acquire) ||
-        !previewConsumerActive_.load(std::memory_order_acquire)) return;
-    std::lock_guard lock(previewPoolMutex_);
-    if (!recycledPreview_) recycledPreview_ = std::move(frame);
-}
-
-void CaptureEngine::SaveEditedFrame(FrameBuffer frame, const AppSettings& settings, bool, const std::wstring& outputPath, const std::wstring& filenamePrefix) {
+void CaptureEngine::FinishEditedFrame(FrameBuffer frame, const AppSettings& settings, RegionResultAction action,
+                                      const std::wstring& outputPath, const std::wstring& filenamePrefix) {
     if (frame.bgra.empty()) return;
     SaveJob job;
     {
         std::lock_guard lock(stateMutex_);
         job.id = nextRequestId_++;
     }
-    job.path = outputPath.empty() ? BuildOutputPath(settings, filenamePrefix) : outputPath;
+    if (action != RegionResultAction::Copy)
+        job.path = outputPath.empty() ? BuildOutputPath(settings, filenamePrefix) : outputPath;
+    job.copyToClipboard = action == RegionResultAction::Copy || action == RegionResultAction::SaveAndCopy;
     job.bgra = std::move(frame.bgra);
     job.width = frame.width;
     job.height = frame.height;
@@ -292,99 +230,118 @@ void CaptureEngine::SetReady(bool ready, const std::wstring& detail) {
     PostEngineEvent(std::move(event));
 }
 
-void CaptureEngine::CaptureThreadMain() {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
-    DWORD mmcssTaskIndex = 0;
-    HANDLE mmcssHandle = AvSetMmThreadCharacteristicsW(L"Capture", &mmcssTaskIndex);
-    if (mmcssHandle) AvSetMmThreadPriority(mmcssHandle, AVRT_PRIORITY_HIGH);
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    SetReady(false, L"Starting DXGI capture…");
+bool CaptureEngine::HasPendingWork() const {
+    std::lock_guard lock(stateMutex_);
+    return !requests_.empty();
+}
 
-    while (WaitForSingleObject(stopEvent_, 0) != WAIT_OBJECT_0) {
-        if (pausedForRecording_.load(std::memory_order_acquire)) {
-            ready_.store(false, std::memory_order_release);
+void CaptureEngine::FailPendingWork(const std::wstring& error) {
+    std::deque<CaptureRequest> failedRequests;
+    {
+        std::lock_guard lock(stateMutex_);
+        failedRequests.swap(requests_);
+    }
+
+    if (failedRequests.empty()) {
+        return;
+    }
+    for (const auto& request : failedRequests) {
+        EngineEvent event;
+        event.type = EngineEventType::Error;
+        event.mode = request.mode;
+        event.detail = error;
+        PostEngineEvent(std::move(event));
+    }
+}
+
+void CaptureEngine::CaptureThreadMain() {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
+    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    SetReady(false, L"Idle; capture starts on demand");
+
+    const HANDLE waitHandles[] = {stopEvent_, wakeEvent_};
+    bool idleResourceReleaseArmed = false;
+    for (;;) {
+        const DWORD waitResult = WaitForMultipleObjects(
+            static_cast<DWORD>(std::size(waitHandles)), waitHandles, FALSE,
+            idleResourceReleaseArmed ? 5000 : INFINITE);
+        if (waitResult == WAIT_OBJECT_0) break;
+        if (waitResult == WAIT_TIMEOUT) {
+            // A genuinely idle engine releases its GPU textures and scarce
+            // desktop-duplication slots entirely.
             ResetDuplicators();
-            SetEvent(pausedEvent_);
-            WaitForSingleObject(wakeEvent_, 50);
+            SetReady(false, L"Idle; capture hardware released");
+            idleResourceReleaseArmed = false;
             continue;
         }
-        if (displayChangePending_.exchange(false, std::memory_order_acq_rel)) {
-            SetReady(false, L"Display mode changed; rebuilding fullscreen capture…");
-            ResetDuplicators();
-        }
-        if (overlayInvalidationPending_.exchange(false, std::memory_order_acq_rel)) {
+        if (waitResult != WAIT_OBJECT_0 + 1) break;
+
+        const bool displayChanged = displayChangePending_.exchange(false, std::memory_order_acq_rel);
+        const bool overlayInvalidated = overlayInvalidationPending_.exchange(false, std::memory_order_acq_rel);
+        if (displayChanged || overlayInvalidated) {
             // Never reuse a frame acquired while the full-desktop region/window-picker
             // surface was visible. Recreating duplication also prevents a queued request
             // from racing the first clean post-overlay compositor frame.
-            SetReady(false, L"Refreshing desktop after region editor…");
+            SetReady(false, displayChanged ? L"Display mode changed; capture will reconnect on demand"
+                                           : L"Desktop overlay closed; cached frames were discarded");
             ResetDuplicators();
+            idleResourceReleaseArmed = false;
         }
+
+        // Startup and settings changes never touch DXGI. Only an explicit screenshot
+        // request connects to the desktop and polls a frame.
+        if (!HasPendingWork()) continue;
+
+        bool initializedForRequest = false;
         if (duplicators_.empty()) {
             std::wstring error;
             SetReady(false, L"Connecting displays…");
             if (!InitializeAllDuplicators(error)) {
-                // A request may have been queued while the engine was still ready and
-                // then raced a display reset. Fail every queued request with its original
-                // mode so App can release the Region/Window single-flight gate instead of
-                // leaving interactive capture locked until restart.
-                std::deque<CaptureRequest> failedRequests;
-                {
-                    std::lock_guard lock(stateMutex_);
-                    failedRequests.swap(requests_);
-                }
-                if (failedRequests.empty()) {
-                    EngineEvent event;
-                    event.type = EngineEventType::Error;
-                    event.detail = error;
-                    PostEngineEvent(std::move(event));
-                } else {
-                    for (const auto& request : failedRequests) {
-                        EngineEvent event;
-                        event.type = EngineEventType::Error;
-                        event.mode = request.mode;
-                        event.detail = error;
-                        PostEngineEvent(std::move(event));
-                    }
-                }
-                WaitForSingleObject(wakeEvent_, 500);
+                if (WaitForSingleObject(stopEvent_, 0) == WAIT_OBJECT_0) break;
+                FailPendingWork(error);
                 continue;
             }
+            initializedForRequest = true;
             SetReady(true, L"All displays are warm and ready");
         }
 
         bool lost = false;
-        for (auto& state : duplicators_) {
-            std::wstring error;
-            if (!PumpOneFrame(*state, 0, error) && !error.empty()) {
-                EngineEvent event;
-                event.type = EngineEventType::Reconfiguring;
-                event.detail = error;
-                PostEngineEvent(std::move(event));
-                lost = true;
-                break;
+        std::wstring lostError;
+        std::size_t requestBatchSize = 0;
+        {
+            std::lock_guard lock(stateMutex_);
+            requestBatchSize = requests_.size();
+        }
+        if (!initializedForRequest) {
+            for (auto& state : duplicators_) {
+                std::wstring error;
+                if (!PumpOneFrame(*state, 40, error) && !error.empty()) {
+                    lostError = std::move(error);
+                    lost = true;
+                    break;
+                }
             }
         }
         if (lost) {
-            ready_.store(false, std::memory_order_release);
+            SetReady(false, lostError);
             ResetDuplicators();
+            idleResourceReleaseArmed = false;
+            FailPendingWork(lostError);
             continue;
         }
 
-        ProcessPendingRequests();
-        ProcessPreviewRequest();
+        ProcessPendingRequests(requestBatchSize);
         ReleaseIdleStagingTextures();
-        WaitForSingleObject(wakeEvent_, 1);
+        idleResourceReleaseArmed = true;
     }
 
     ResetDuplicators();
-    if (mmcssHandle) AvRevertMmThreadCharacteristics(mmcssHandle);
-    CoUninitialize();
+    if (SUCCEEDED(comResult)) CoUninitialize();
 }
 
 void CaptureEngine::SaveThreadMain() {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    PrewarmWic();
     for (;;) {
         SaveJob job;
         {
@@ -393,6 +350,14 @@ void CaptureEngine::SaveThreadMain() {
             if (saveStopping_ && saveQueue_.empty()) break;
             job = std::move(saveQueue_.front());
             saveQueue_.pop_front();
+        }
+        if (job.copyToClipboard) {
+            EngineEvent event;
+            event.type = EngineEventType::ClipboardImageReady;
+            event.path = job.path;
+            event.clipboardImage = PrepareClipboardImage(job);
+            PostEngineEvent(std::move(event));
+            if (job.path.empty()) continue;
         }
         const auto started = QpcNow();
         std::wstring error;
@@ -416,6 +381,7 @@ bool CaptureEngine::InitializeAllDuplicators(std::wstring& error) {
         error = L"Windows returned no desktop displays";
         return false;
     }
+    expectedOutputCount_ = outputs.size();
 
     for (const auto& output : outputs) {
         auto state = std::make_unique<DuplicatorState>();
@@ -428,21 +394,27 @@ bool CaptureEngine::InitializeAllDuplicators(std::wstring& error) {
         return false;
     }
 
-    const ULONGLONG deadline = GetTickCount64() + 2500;
-    while (GetTickCount64() < deadline && WaitForSingleObject(stopEvent_, 0) != WAIT_OBJECT_0) {
-        bool allWarm = true;
-        for (auto& state : duplicators_) {
-            if (state->hasFrame) continue;
-            allWarm = false;
-            std::wstring warmError;
-            PumpOneFrame(*state, 40, warmError);
+    // The first duplication event can contain only pointer metadata. Its texture
+    // is not an initialized desktop image. Wait for a real present for this
+    // request, with one shared deadline across monitors and no idle polling.
+    std::wstring warmFailure;
+    const ULONGLONG deadline = GetTickCount64() + 750;
+    for (auto& state : duplicators_) {
+        std::wstring warmError;
+        while (!state->hasFrame && running_.load()) {
+            const auto now = GetTickCount64();
+            if (now >= deadline) break;
+            const auto remaining = deadline - now;
+            const DWORD waitMs = static_cast<DWORD>((std::min)(remaining, 50ULL));
+            PumpOneFrame(*state, waitMs, warmError);
+            if (!warmError.empty()) break;
         }
-        if (allWarm) return true;
+        if (warmFailure.empty() && !warmError.empty()) warmFailure = std::move(warmError);
     }
     for (const auto& state : duplicators_) {
         if (state->hasFrame) return true;
     }
-    error = L"DXGI did not deliver a warm-up frame";
+    error = warmFailure.empty() ? L"DXGI did not deliver a frame for the request" : std::move(warmFailure);
     ResetDuplicators();
     return false;
 }
@@ -485,7 +457,10 @@ bool CaptureEngine::InitializeDuplicator(DuplicatorState& state, std::wstring& e
     return true;
 }
 
-void CaptureEngine::ResetDuplicators() { duplicators_.clear(); }
+void CaptureEngine::ResetDuplicators() {
+    duplicators_.clear();
+    expectedOutputCount_ = 0;
+}
 
 bool CaptureEngine::EnsureFrameTextures(DuplicatorState& state, const D3D11_TEXTURE2D_DESC& sourceDesc,
                                          std::wstring& error) {
@@ -508,7 +483,6 @@ bool CaptureEngine::EnsureFrameTextures(DuplicatorState& state, const D3D11_TEXT
     state.latestTexture = std::move(latestTexture);
     state.stagingTexture.Reset();
     state.frameDesc = latest;
-    state.previewScaler.Reset();
     state.stagingLastUsed = 0;
     state.hasFrame = false;
     return true;
@@ -547,25 +521,35 @@ void CaptureEngine::ReleaseIdleStagingTextures() {
 bool CaptureEngine::PumpOneFrame(DuplicatorState& state, DWORD timeoutMs, std::wstring& error) {
     DXGI_OUTDUPL_FRAME_INFO frameInfo{};
     ComPtr<IDXGIResource> resource;
+    acquireAttempts_.fetch_add(1, std::memory_order_relaxed);
     const HRESULT hr = state.duplication->AcquireNextFrame(timeoutMs, &frameInfo, &resource);
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) return false;
     if (hr == DXGI_ERROR_ACCESS_LOST) { error = L"Display access changed; reconnecting DXGI"; return false; }
     if (FAILED(hr)) { error = L"AcquireNextFrame: " + HResultText(hr); return false; }
     struct Guard { IDXGIOutputDuplication* duplication; ~Guard() { if (duplication) duplication->ReleaseFrame(); } }
         guard{state.duplication.Get()};
+    // Pointer-only notifications do not carry new desktop pixels. In particular,
+    // the first such event may expose an all-zero texture before the first present.
+    if (frameInfo.LastPresentTime.QuadPart == 0) return false;
     ComPtr<ID3D11Texture2D> frameTexture;
     if (FAILED(resource.As(&frameTexture))) { error = L"Desktop frame is not a texture"; return false; }
     D3D11_TEXTURE2D_DESC desc{};
     frameTexture->GetDesc(&desc);
     if (!EnsureFrameTextures(state, desc, error)) return false;
     state.context->CopyResource(state.latestTexture.Get(), frameTexture.Get());
+    frameCopies_.fetch_add(1, std::memory_order_relaxed);
     state.hasFrame = true;
     return true;
 }
 
 CaptureEngine::DuplicatorState* CaptureEngine::FindState(HMONITOR monitor) {
     for (auto& state : duplicators_) if (state->info.monitor == monitor && state->hasFrame) return state.get();
-    for (auto& state : duplicators_) if (state->hasFrame) return state.get();
+    // A concrete monitor request must never fall back to a different display:
+    // that can capture private content from the wrong screen while labelling it
+    // as the requested one. Null means the caller explicitly accepts a default.
+    if (!monitor) {
+        for (auto& state : duplicators_) if (state->hasFrame) return state.get();
+    }
     return nullptr;
 }
 
@@ -592,12 +576,19 @@ bool CaptureEngine::ReadStateToCpu(DuplicatorState& state, FrameBuffer& frame, s
 }
 
 bool CaptureEngine::BuildCombinedFrame(FrameBuffer& frame, std::wstring& error) {
+    if (expectedOutputCount_ == 0 || duplicators_.size() != expectedOutputCount_) {
+        error = L"Not every desktop display is available; capture was cancelled instead of saving an incomplete desktop";
+        return false;
+    }
     std::vector<std::pair<OutputInfo, FrameBuffer>> pieces;
     RECT bounds{LONG_MAX, LONG_MAX, LONG_MIN, LONG_MIN};
     for (auto& state : duplicators_) {
-        if (!state->hasFrame) continue;
+        if (!state->hasFrame) {
+            error = L"A desktop display has no current frame; capture was cancelled instead of saving an incomplete desktop";
+            return false;
+        }
         FrameBuffer piece;
-        if (!ReadStateToCpu(*state, piece, error)) continue;
+        if (!ReadStateToCpu(*state, piece, error)) return false;
         bounds.left = (std::min)(bounds.left, state->info.desktopRect.left);
         bounds.top = (std::min)(bounds.top, state->info.desktopRect.top);
         bounds.right = (std::max)(bounds.right, state->info.desktopRect.right);
@@ -628,8 +619,8 @@ bool CaptureEngine::BuildCombinedFrame(FrameBuffer& frame, std::wstring& error) 
     return true;
 }
 
-void CaptureEngine::ProcessPendingRequests() {
-    for (;;) {
+void CaptureEngine::ProcessPendingRequests(std::size_t maximumRequests) {
+    for (std::size_t processed = 0; processed < maximumRequests; ++processed) {
         CaptureRequest request;
         {
             std::lock_guard lock(stateMutex_);
@@ -638,44 +629,6 @@ void CaptureEngine::ProcessPendingRequests() {
             requests_.pop_front();
         }
         ProcessCaptureRequest(std::move(request));
-    }
-}
-
-void CaptureEngine::ProcessPreviewRequest() {
-    HMONITOR requested = nullptr;
-    {
-        std::lock_guard lock(stateMutex_);
-        if (!previewPending_) return;
-        requested = previewMonitor_;
-        previewPending_ = false;
-    }
-    auto* state = FindState(requested);
-    const auto cancelPreview = [this]() { previewInFlight_.store(false, std::memory_order_release); };
-    if (!state || !state->latestTexture) { cancelPreview(); return; }
-    std::wstring error;
-    if (!EnsureStagingTexture(*state, error)) { cancelPreview(); return; }
-
-    state->context->CopyResource(state->stagingTexture.Get(), state->latestTexture.Get());
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(state->context->Map(state->stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-        cancelPreview();
-        return;
-    }
-
-    constexpr UINT kPreviewWidth = 640;
-    constexpr UINT kPreviewHeight = 360;
-    auto preview = TakePreviewFrame();
-    preview->liveRecording = false;
-    const auto* source = static_cast<const std::uint8_t*>(mapped.pData);
-    const bool scaled = state->previewScaler.Scale(source, state->frameDesc.Width, state->frameDesc.Height,
-                                                    mapped.RowPitch, kPreviewWidth, kPreviewHeight,
-                                                    preview->bgra, preview->width, preview->height, preview->stride);
-    state->context->Unmap(state->stagingTexture.Get(), 0);
-    if (!scaled) { RecyclePreviewFrame(std::move(preview)); cancelPreview(); return; }
-    auto* raw = preview.release();
-    if (!PostMessageW(notifyWindow_, WM_APP_PREVIEW_FRAME, 0, reinterpret_cast<LPARAM>(raw))) {
-        delete raw;
-        cancelPreview();
     }
 }
 

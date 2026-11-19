@@ -43,7 +43,6 @@ enum class Control {
     ToggleStartMenu,
     ToggleAutostart,
     ToggleRunAsAdmin,
-    ToggleAssociate,
     ToggleKeepData,
     OpenRepository,
     UseNewerVersion,
@@ -291,8 +290,6 @@ void PaintWelcome(HDC dc) {
     y += 26;
     y = PaintDependencyLine(dc, y, g.dependencies.windowsVersionOk, L"Windows 10 1903 or newer",
                             g.dependencies.windowsHint);
-    y = PaintDependencyLine(dc, y, g.dependencies.mediaFoundationOk,
-                            L"Media Foundation (recording and playback)", g.dependencies.mediaFoundationHint);
     PaintDependencyLine(dc, y, g.dependencies.direct3DOk, L"Direct3D 11 graphics device",
                         g.dependencies.direct3DHint);
 }
@@ -326,10 +323,6 @@ void PaintOptions(HDC dc) {
                      ? std::wstring(L"With autostart this uses a sign-in task — installer must run as admin.")
                      : std::wstring(L"Needed for hotkeys to work inside elevated apps."),
                  Control::ToggleRunAsAdmin);
-    y += 50;
-    DrawCheckbox(dc, kContentLeft - 6, y, kContentRight - kContentLeft + 12, g.options.associateLunaFiles,
-                 L"Open .luna plugin files with Luna Capture",
-                 L"Double-clicking a plugin installs it straight into the app.", Control::ToggleAssociate);
 }
 
 void PaintProgress(HDC dc) {
@@ -392,14 +385,13 @@ void PaintUninstallConfirm(HDC dc) {
     DrawText(dc, L"Remove Luna Capture", RECT{kContentLeft, 100, kContentRight, 138}, RGB(243, 246, 252),
              g.fontTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     const std::wstring installed = DetectInstalledVersion();
-    DrawText(dc, installed.empty() ? std::wstring(L"This removes the program, its shortcuts and the .luna file association.")
-                                   : L"Version " + installed +
-                                         L" will be removed, along with its shortcuts and the .luna file association.",
+    DrawText(dc, installed.empty() ? std::wstring(L"This removes the program and its shortcuts.")
+                                   : L"Version " + installed + L" will be removed, along with its shortcuts.",
              RECT{kContentLeft, 142, kContentRight, 200}, RGB(150, 159, 175), g.fontBody);
 
     DrawCheckbox(dc, kContentLeft - 6, 214, kContentRight - kContentLeft + 12, g.keepUserData,
-                 L"Keep my settings, plugins and captures",
-                 L"Screenshots and recordings are never deleted either way.", Control::ToggleKeepData);
+                 L"Keep my settings and captures",
+                 L"Screenshots are never deleted either way.", Control::ToggleKeepData);
 }
 
 void PaintWindow(HWND window) {
@@ -631,7 +623,6 @@ void HandleControl(Control control) {
         case Control::ToggleRunAsAdmin:
             g.options.runAsAdmin = !g.options.runAsAdmin;
             break;
-        case Control::ToggleAssociate: g.options.associateLunaFiles = !g.options.associateLunaFiles; break;
         case Control::ToggleKeepData: g.keepUserData = !g.keepUserData; break;
         case Control::OpenRepository:
             ShellExecuteW(nullptr, L"open", L"https://github.com/LouSkull/LunaCapture", nullptr, nullptr,
@@ -732,8 +723,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             g.installWarning = g.finishedOk && payload ? *payload : std::wstring();
             if (g.finishedOk) {
                 g.finishMessage = g.uninstallMode
-                    ? L"The program, its shortcuts and the .luna association are gone. This window closes the "
-                      L"uninstaller when you press Close."
+                    ? L"The program and its shortcuts are gone. This window closes the uninstaller when you press Close."
                     : L"Luna Capture " + g.release.version + L" is installed in " + g.options.installDirectory +
                           L".\n\nPress Launch to start it now — it lives in the system tray.";
             } else {

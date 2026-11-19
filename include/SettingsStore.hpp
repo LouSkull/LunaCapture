@@ -6,7 +6,10 @@
 
 class SettingsStore {
 public:
+    enum class Access { ReadWrite, ReadOnly };
+
     SettingsStore();
+    explicit SettingsStore(Access access);
     explicit SettingsStore(std::wstring path);
 
     AppSettings Load() const;
@@ -16,4 +19,5 @@ public:
 
 private:
     std::wstring path_;
+    bool readOnly_ = false;
 };
